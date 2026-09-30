@@ -195,7 +195,7 @@ instead. The catalog decides whether a coding turn needs a frontier model.
 
 ## Model catalog
 
-27 current models from OpenAI, Anthropic, Google, Groq and Mistral ship in
+32 current models from OpenAI, Anthropic, Google, Groq and Mistral ship in
 [`flux_os/models.json`](flux_os/models.json), with prices (USD per 1M tokens), context windows,
 capabilities and per-task quality ratings. Run `flux-os models --all` to list them. The quality
 ratings are editorial estimates built from public benchmarks, not measurements of your
@@ -254,7 +254,7 @@ above, and quality ratings backed by data. See [CONTRIBUTING.md](CONTRIBUTING.md
 flux-os is an independent, unofficial project and is not affiliated with, endorsed by, or
 sponsored by OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, OpenRouter, Ollama, LangChain or
 Vercel. Their names are used only to describe API and provider compatibility. Prices and quality
-ratings in this repository are estimates as of 2026-09-27 and must be checked against each
+ratings in this repository are estimates as of 2026-09-29 and must be checked against each
 provider's current, official pricing before you rely on them.
 
 ## License

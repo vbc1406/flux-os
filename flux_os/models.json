@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-09-27",
+  "updated": "2026-09-29",
   "prices": "USD per 1M tokens",
   "models": [
     {
@@ -59,6 +59,35 @@
         "function_calling": 0.88,
         "long_document": 0.88,
         "general": 0.89
+      }
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "provider": "anthropic",
+      "name": "Claude Sonnet 5.5",
+      "input_cost": 2.0,
+      "output_cost": 10.0,
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tools": true,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 1200,
+      "quality": {
+        "simple_qa": 0.9,
+        "conversation": 0.91,
+        "translation": 0.88,
+        "classification": 0.9,
+        "extraction": 0.89,
+        "summarization": 0.9,
+        "code_generation": 0.95,
+        "code_review": 0.9,
+        "creative_writing": 0.91,
+        "analysis": 0.91,
+        "reasoning": 0.93,
+        "function_calling": 0.92,
+        "long_document": 0.89,
+        "general": 0.91
       }
     },
     {
@@ -149,6 +178,35 @@
       }
     },
     {
+      "id": "claude-opus-5-5",
+      "provider": "anthropic",
+      "name": "Claude Opus 5.5",
+      "input_cost": 4.0,
+      "output_cost": 20.0,
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tools": true,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 3000,
+      "quality": {
+        "simple_qa": 0.94,
+        "conversation": 0.94,
+        "translation": 0.92,
+        "classification": 0.94,
+        "extraction": 0.93,
+        "summarization": 0.94,
+        "code_generation": 0.98,
+        "code_review": 0.94,
+        "creative_writing": 0.95,
+        "analysis": 0.93,
+        "reasoning": 0.96,
+        "function_calling": 0.95,
+        "long_document": 0.93,
+        "general": 0.95
+      }
+    },
+    {
       "id": "claude-fable-5-1",
       "provider": "anthropic",
       "name": "Claude Fable 5.1",
@@ -204,6 +262,35 @@
         "function_calling": 0.77,
         "long_document": 0.84,
         "general": 0.83
+      }
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "provider": "google",
+      "name": "Gemini 3.5 Flash Lite",
+      "input_cost": 0.3,
+      "output_cost": 2.5,
+      "context_window": 1048576,
+      "max_output_tokens": 65536,
+      "tools": true,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 400,
+      "quality": {
+        "simple_qa": 0.87,
+        "conversation": 0.87,
+        "translation": 0.85,
+        "classification": 0.87,
+        "extraction": 0.85,
+        "summarization": 0.85,
+        "code_generation": 0.84,
+        "code_review": 0.78,
+        "creative_writing": 0.78,
+        "analysis": 0.85,
+        "reasoning": 0.87,
+        "function_calling": 0.84,
+        "long_document": 0.85,
+        "general": 0.85
       }
     },
     {
@@ -539,6 +626,43 @@
       }
     },
     {
+      "id": "gpt-6-luna",
+      "provider": "openai",
+      "name": "GPT-6 Luna",
+      "input_cost": 0.1,
+      "output_cost": 0.5,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "tools": false,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 450,
+      "drop_params": [
+        "temperature",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
+        "logprobs",
+        "top_logprobs"
+      ],
+      "quality": {
+        "simple_qa": 0.88,
+        "conversation": 0.87,
+        "translation": 0.83,
+        "classification": 0.88,
+        "extraction": 0.85,
+        "summarization": 0.84,
+        "code_generation": 0.87,
+        "code_review": 0.77,
+        "creative_writing": 0.81,
+        "analysis": 0.86,
+        "reasoning": 0.88,
+        "function_calling": 0.86,
+        "long_document": 0.47,
+        "general": 0.86
+      }
+    },
+    {
       "id": "gpt-5-mini",
       "provider": "openai",
       "name": "GPT-5 Mini",
@@ -781,6 +905,43 @@
         "summarization": 0.9,
         "code_generation": 0.93,
         "code_review": 0.85,
+        "creative_writing": 0.88,
+        "analysis": 0.93,
+        "reasoning": 0.95,
+        "function_calling": 0.92,
+        "long_document": 0.82,
+        "general": 0.92
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "provider": "openai",
+      "name": "GPT-6 Sol",
+      "input_cost": 2.0,
+      "output_cost": 10.0,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "tools": false,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 3200,
+      "drop_params": [
+        "temperature",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
+        "logprobs",
+        "top_logprobs"
+      ],
+      "quality": {
+        "simple_qa": 0.93,
+        "conversation": 0.92,
+        "translation": 0.89,
+        "classification": 0.93,
+        "extraction": 0.9,
+        "summarization": 0.9,
+        "code_generation": 0.94,
+        "code_review": 0.86,
         "creative_writing": 0.88,
         "analysis": 0.93,
         "reasoning": 0.95,
