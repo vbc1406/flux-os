@@ -43,6 +43,9 @@ BAR_BASE = 0.72
 BAR_SLOPE = 0.22
 TOOL_BAR_MIN = 0.80
 CHEAP_BAR_DISCOUNT = 0.06
+# Ratings are editorial and rounded to 0.01, so a model within this distance of the bar counts as
+# clearing it (otherwise a 0.002 shortfall buys a pricier model with no measurable quality gain).
+DEFAULT_QUALITY_TOLERANCE = 0.02
 
 
 class RoutingError(Exception):
@@ -120,6 +123,7 @@ class Router:
         *,
         default_mode: str | None = None,
         quality_offset: float | None = None,
+        quality_tolerance: float | None = None,
         require_credentials: bool = True,
     ) -> None:
         self.catalog = catalog or Catalog.load()
@@ -129,6 +133,12 @@ class Router:
         if quality_offset is None:
             quality_offset = float(os.environ.get("FLUX_OS_QUALITY_OFFSET", "0") or 0)
         self.quality_offset = quality_offset
+        if quality_tolerance is None:
+            raw = os.environ.get("FLUX_OS_QUALITY_TOLERANCE")
+            quality_tolerance = float(raw) if raw not in (None, "") else DEFAULT_QUALITY_TOLERANCE
+        if quality_tolerance < 0:
+            raise ValueError("quality_tolerance must be >= 0")
+        self.quality_tolerance = quality_tolerance
         self.allow_oversize = os.environ.get("FLUX_OS_ALLOW_OVERSIZE", "").strip().lower() in (
             "1",
             "true",
@@ -274,8 +284,9 @@ class Router:
         def cost(m: Model) -> float:
             return m.estimate_cost(analysis.input_tokens, analysis.output_tokens)
 
-        passing = [m for m in eligible if quality(m) >= bar]
-        failing = [m for m in eligible if quality(m) < bar]
+        floor = bar - self.quality_tolerance - 1e-9  # epsilon: a rating exactly on the floor must clear it
+        passing = [m for m in eligible if quality(m) >= floor]
+        failing = [m for m in eligible if quality(m) < floor]
         if mode == "fast":
             ranked = sorted(passing, key=lambda m: (m.latency_ms, cost(m)))
             ranked += sorted(failing, key=lambda m: (-quality(m), m.latency_ms))
