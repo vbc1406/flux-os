@@ -29,7 +29,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from ._version import __version__
 from .classifier import classify
 from .client import FluxOS, RouteInfo, UpstreamError, attempts_header
-from .providers import ProviderError
+from .providers import EMPTY_REPLY_MESSAGE, ProviderError
 from .router import MODES, RoutingError, parse_directive
 from .translate import (
     ChatStreamToAnthropic,
@@ -107,7 +107,9 @@ def _log_upstream_failure(context: str, detail: str) -> None:
     print(f"flux-os: {context} failed: {detail}", file=sys.stderr)
 
 
-def _upstream_message(debug: bool, detail: str) -> str:
+def _upstream_message(debug: bool, detail: str, exc: Exception | None = None) -> str:
+    if getattr(exc, "attempts", None) and exc.attempts[-1].get("code") == "empty_reply":  # type: ignore[union-attr]
+        return EMPTY_REPLY_MESSAGE  # fixed text, safe to show and actionable
     return detail if debug else "upstream request failed"
 
 
@@ -282,7 +284,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
         except UpstreamError as exc:
             _log_upstream_failure("chat completion", str(exc))
             error: dict[str, Any] = {
-                "message": _upstream_message(debug_errors, str(exc)),
+                "message": _upstream_message(debug_errors, str(exc), exc),
                 "type": "upstream_error",
                 "code": exc.status_code,
             }
@@ -331,7 +333,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             _log_upstream_failure("responses", str(exc))
             return _openai_error(
                 exc.status_code,
-                _upstream_message(debug_errors, str(exc)),
+                _upstream_message(debug_errors, str(exc), exc),
                 "upstream_error",
                 _error_headers(exc),
             )
@@ -378,7 +380,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
         except UpstreamError as exc:
             _log_upstream_failure("messages", str(exc))
             return _anthropic_error(
-                exc.status_code, _upstream_message(debug_errors, str(exc)), _error_headers(exc)
+                exc.status_code, _upstream_message(debug_errors, str(exc), exc), _error_headers(exc)
             )
 
     return app

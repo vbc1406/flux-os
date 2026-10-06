@@ -242,6 +242,10 @@ is a small LRU cache of tool-call ids (for agent loop continuity) and recent Res
 (for `previous_response_id`).
 
 Known limits:
+- Reasoning models (gpt-oss, o-series, Gemini thinking) spend `max_tokens` on hidden reasoning. With a
+  small limit (say 50) they can return nothing. flux-os treats an empty reply with
+  `finish_reason: length` as a failure and reroutes (non-streaming only); if every candidate does it,
+  you get a 502 telling you to raise `max_tokens`. As a floor, use 1000+ for reasoning-heavy work.
 - The Responses API supports function tools only. Built-in tools like `web_search` and `file_search` are ignored.
 - Anthropic server tools (`web_search_*`, `bash_*`, and similar) aren't forwarded. Client tools work.
 - Extended-thinking blocks aren't carried across providers.
