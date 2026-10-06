@@ -217,10 +217,10 @@ ratings are editorial estimates built from public benchmarks, not measurements o
 workload.
 
 **Models your account can't call.** The catalog lists models, not what your plan allows. A model
-that is gated on your tier (for example a 403 `tier_not_allowed`) or heavily rate-limited will be
+that is gated on your tier (for example `mistral-large-3` returning 403 `tier_not_allowed`) or heavily rate-limited will be
 picked, fail, and be rerouted on every request that selects it. That costs latency, not
 correctness. Check `x-flux-attempts` and the stderr `reroute` lines to see it, then switch the model
-off with `FLUX_OS_DISABLE=mistral-large-2512` (or a whole provider with `FLUX_OS_DISABLE=provider:mistral`).
+off with `FLUX_OS_DISABLE=mistral-large-3` (or a whole provider with `FLUX_OS_DISABLE=provider:mistral`).
 
 ## Security
 
