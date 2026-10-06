@@ -11,6 +11,7 @@ import httpx
 
 from ._version import __version__
 from .catalog import Model, Provider
+from .classifier import content_text
 from .translate import AnthropicStreamToChat, anthropic_to_chat, chat_to_anthropic
 
 # Parameters forwarded to non-OpenAI OpenAI-compatible providers. Anything else
@@ -47,11 +48,34 @@ _INTERNAL = {"flux_mode", "flux_reroute"}
 class ProviderError(Exception):
     """An upstream call failed. ``retryable`` means another model may succeed."""
 
-    def __init__(self, message: str, status: int | None = None, retryable: bool = True, provider: str = ""):
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        retryable: bool = True,
+        provider: str = "",
+        code: str | None = None,
+    ):
         super().__init__(message)
         self.status = status
         self.retryable = retryable
         self.provider = provider
+        self.code = code  # machine-readable kind, e.g. "empty_reply"
+
+
+EMPTY_REPLY_MESSAGE = (
+    "model returned no visible output: max_tokens was used up (typically by hidden reasoning). "
+    "Raise max_tokens (reasoning models need roughly 1000+)"
+)
+
+
+def _empty_length_reply(data: dict[str, Any]) -> bool:
+    """Empty content, no tool calls, finish_reason=length: the budget went on hidden reasoning."""
+    choice = (data.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    content = msg.get("content")
+    empty = not (content if isinstance(content, str) else content_text(content)).strip()
+    return empty and not msg.get("tool_calls") and choice.get("finish_reason") == "length"
 
 
 def _without_extra_content(message: dict[str, Any]) -> dict[str, Any]:
@@ -193,10 +217,12 @@ class Upstream:
         except ValueError as exc:
             raise ProviderError("upstream returned invalid JSON", provider=provider.name) from exc
         if provider.style == "anthropic":
-            return anthropic_to_chat(data, model.id)
-        if not data.get("choices"):
+            data = anthropic_to_chat(data, model.id)
+        elif not data.get("choices"):
             raise ProviderError(_error_message(r.status_code, r.text), provider=provider.name)
         data["model"] = model.id
+        if _empty_length_reply(data):
+            raise ProviderError(EMPTY_REPLY_MESSAGE, provider=provider.name, code="empty_reply")
         return data
 
     async def stream(

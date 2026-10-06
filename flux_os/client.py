@@ -58,7 +58,7 @@ def sanitize_reason(text: str, limit: int = 120) -> str:
 
 
 def log_reroute(model: Model, exc: ProviderError) -> None:
-    status = exc.status if exc.status is not None else "error"
+    status = exc.status if exc.status is not None else (exc.code or "error")
     print(
         f"flux-os: reroute from={model.id} status={status} reason={sanitize_reason(str(exc))}",
         file=sys.stderr,
@@ -67,7 +67,7 @@ def log_reroute(model: Model, exc: ProviderError) -> None:
 
 def attempts_header(attempts: list[dict[str, Any]]) -> str:
     """``model:status`` per attempt, in order, e.g. ``gemini-3-flash-preview:429,o4-mini:200``."""
-    return ",".join(f"{a['model']}:{a.get('status') or 'err'}" for a in attempts)
+    return ",".join(f"{a['model']}:{a.get('status') or a.get('code') or 'err'}" for a in attempts)
 
 
 @dataclass
@@ -256,7 +256,9 @@ class FluxOS:
             try:
                 resp = await self.upstream.complete(req, model, provider)
             except ProviderError as exc:
-                attempts.append({"model": model.id, "error": str(exc), "status": exc.status})
+                attempts.append(
+                    {"model": model.id, "error": str(exc), "status": exc.status, "code": exc.code}
+                )
                 last = exc
                 if not exc.retryable:
                     break
