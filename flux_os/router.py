@@ -13,6 +13,7 @@ Deterministic, explainable, no network calls.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -131,6 +132,7 @@ class Router:
         self.require_credentials = require_credentials
         self._tool_calls = _LRU(10_000)
         self._extra_content = _LRU(10_000)
+        self._unknown_logged = _LRU(10_000)
 
     # ── agent tool-loop continuity ──────────────────────────────────────────
     def remember_tool_calls(self, tool_calls: list[dict[str, Any]] | None, model_id: str) -> None:
@@ -170,9 +172,20 @@ class Router:
                 found = self._tool_calls.get(str(m["tool_call_id"]))
                 if found:
                     return found
+                self._log_unknown_tool_call(str(m["tool_call_id"]))
             elif m.get("role") != "tool":
                 break
         return None
+
+    def _log_unknown_tool_call(self, call_id: str) -> None:
+        """Once per id: this process never issued it (restart, another replica, or a foreign client)."""
+        if self._unknown_logged.get(call_id) is None:
+            self._unknown_logged.put(call_id, "1")
+            print(
+                f"flux-os: tool result for unknown tool_call_id {call_id[:40]!r}; "
+                "routing it fresh (the issuing model is not remembered across restarts or replicas)",
+                file=sys.stderr,
+            )
 
     # ── routing ─────────────────────────────────────────────────────────────
     def pool(self) -> list[Model]:

@@ -127,8 +127,17 @@ request ─► classify ─► filter ─► quality bar ─► rank ─► call
 4. **Rank.** Models that clear the bar are sorted by estimated cost for this request, and the rest follow by quality. That ordered list is also the reroute order.
 5. **Call, and reroute on failure.** Rate limits, 5xx errors, timeouts, auth errors, unknown models and capability errors move the request to the next candidate, trying other providers before the one that failed. Plain bad requests (a 400) are returned as they are, and streams are only rerouted before the first token.
 
-**Agent tool loops stay on one model.** When a tool result comes back, flux-os sends it to the model
-that made the tool call, so an agent doesn't change models in the middle of a step.
+**Agent tool loops stay on one model, while that model is healthy.** When a tool result comes back,
+flux-os sends it to the model that made the tool call, so an agent doesn't change models in the
+middle of a step. Two limits to know about:
+
+- The tool-call-id → model map lives in memory of **one flux-os process**. After a restart, behind
+  several replicas without sticky routing, or for tool-call ids flux-os never issued, the tool result
+  is routed fresh (flux-os logs this once per id to stderr). Run a single instance for agent traffic.
+- If the model holding the loop fails (429, 5xx, ...), flux-os reroutes **mid-loop** to the next
+  candidate, possibly another provider, and sends it the full message history unchanged. That is by
+  design: an answer from a different model beats an error. Pin a model and leave rerouting off
+  (the default for pinned models) if you need a loop to stay put or fail.
 
 ### Modes
 
