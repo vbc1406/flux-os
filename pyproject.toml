@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flux-os"
-version = "0.1.0"
+version = "0.2.0"
 description = "Route every LLM request to the cheapest model that can handle it. OpenAI + Anthropic compatible proxy and Python library, for agents and wrappers."
 readme = "README.md"
 license = "MIT"
