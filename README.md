@@ -15,11 +15,15 @@ as a proxy or a Python library. No dashboard, no database, no setup.
 
 ```text
 "hi"                                          → gpt-oss-20b      (groq)     ~$0.00004
-"Translate 'good morning' into Spanish"       → mistral-small-4  (mistral)  ~$0.0002
+"Translate 'good morning' into Spanish"       → gpt-oss-20b      (groq)     ~$0.0001
 "Write a Python function that parses dates"   → gpt-oss-20b      (groq)     ~$0.0004
 "Implement a lock-free concurrent hash map in
- Rust, thread-safe, no global locks, ..."     → o4-mini          (openai)   ~$0.0053
+ Rust, thread-safe, no global locks, and
+ handle all edge cases"                       → gpt-oss-120b     (groq)     ~$0.0007
 ```
+
+(Decisions with `GROQ_API_KEY`, `OPENAI_API_KEY` and `MISTRAL_API_KEY` set. Which model wins depends on the
+keys you have, and `flux-os route` shows it for your setup. A test keeps these lines honest.)
 
 Most traffic doesn't need your most expensive model. flux-os reads each request (task type,
 difficulty, tools, images, JSON mode, context size), sets a quality bar, and picks the
@@ -41,10 +45,10 @@ flux-os route --all "Prove that there are infinitely many primes"
 ```
 
 ```text
-model:       gpt-5.6-luna  (openai)
+model:       gpt-oss-20b  (groq)
 task:        reasoning   complexity 0.55   quality bar 0.84
-est. cost:   $0.001203
-reroute to:  gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-3.8-flash
+est. cost:   $0.000301
+reroute to:  gpt-5.6-luna, gemini-3.1-flash-lite, gemini-3-flash-preview
 ```
 
 Then set keys for the providers you use (any subset) and start the proxy:
@@ -211,6 +215,12 @@ instead. The catalog decides whether a coding turn needs a frontier model.
 capabilities and per-task quality ratings. Run `flux-os models --all` to list them. The quality
 ratings are editorial estimates built from public benchmarks, not measurements of your
 workload.
+
+**Models your account can't call.** The catalog lists models, not what your plan allows. A model
+that is gated on your tier (for example a 403 `tier_not_allowed`) or heavily rate-limited will be
+picked, fail, and be rerouted on every request that selects it. That costs latency, not
+correctness. Check `x-flux-attempts` and the stderr `reroute` lines to see it, then switch the model
+off with `FLUX_OS_DISABLE=mistral-large-2512` (or a whole provider with `FLUX_OS_DISABLE=provider:mistral`).
 
 ## Security
 

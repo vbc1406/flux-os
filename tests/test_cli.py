@@ -56,3 +56,48 @@ def test_serve_allows_loopback_without_key(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.delenv("FLUX_OS_API_KEY", raising=False)
     monkeypatch.setattr("uvicorn.run", lambda *a, **k: None)
     assert main(["serve", "--host", "127.0.0.1"]) == 0
+
+
+def _readme_block(start: str) -> str:
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+    i = text.index("```text\n" + start)
+    return text[i + len("```text\n") : text.index("```", i + 8)]
+
+
+def test_readme_hero_examples_match_router(monkeypatch: pytest.MonkeyPatch) -> None:
+    import re
+
+    from flux_os import Catalog, Router
+
+    for key in ("GROQ_API_KEY", "OPENAI_API_KEY", "MISTRAL_API_KEY"):
+        monkeypatch.setenv(key, "test-key")
+    router = Router(Catalog.load())
+    entries = re.findall(
+        r'"(.+?)"\s+→\s+(\S+)\s+\((\w+)\)\s+~\$([\d.]+)', _readme_block('"hi"'), flags=re.DOTALL
+    )
+    assert len(entries) == 4
+    for prompt, model, provider, cost in entries:
+        prompt = " ".join(prompt.split())
+        d = router.route([{"role": "user", "content": prompt}], model="auto")
+        assert (d.model.id, d.model.provider) == (model, provider), prompt
+        assert float(cost) == float(f"{d.estimated_cost:.1g}"), prompt
+
+
+def test_readme_quickstart_route_output_matches(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["route", "--all", "Prove that there are infinitely many primes"]) == 0
+    actual = [ln.split() for ln in capsys.readouterr().out.strip().splitlines()]
+    expected = [ln.split() for ln in _readme_block("model:").strip().splitlines()]
+    assert actual == expected
+
+
+def test_readme_model_count_matches_catalog() -> None:
+    import re
+    from pathlib import Path
+
+    from flux_os import Catalog
+
+    text = (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8")
+    claimed = {int(n) for n in re.findall(r"\b(\d+) current models", text)}
+    assert claimed == {len(Catalog.load().models)}
