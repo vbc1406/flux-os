@@ -346,7 +346,7 @@
         "code_review": 0.72,
         "creative_writing": 0.68,
         "analysis": 0.78,
-        "reasoning": 0.84,
+        "reasoning": 0.8,
         "function_calling": 0.72,
         "long_document": 0.72,
         "general": 0.78
@@ -376,7 +376,7 @@
         "code_review": 0.78,
         "creative_writing": 0.72,
         "analysis": 0.82,
-        "reasoning": 0.82,
+        "reasoning": 0.86,
         "function_calling": 0.78,
         "long_document": 0.78,
         "general": 0.81
