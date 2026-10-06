@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import sys
 import threading
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
@@ -31,10 +33,41 @@ from .router import Decision, Router, RoutingError, parse_directive
 class UpstreamError(Exception):
     """Every candidate model failed."""
 
-    def __init__(self, message: str, attempts: list[dict[str, Any]], status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        attempts: list[dict[str, Any]],
+        status: int | None = None,
+        decision: Decision | None = None,
+    ):
         super().__init__(message)
         self.attempts = attempts
+        self.decision = decision
         self.status_code = status if status and 400 <= status < 600 else 502
+
+
+_SECRET = re.compile(
+    r"(?i)(bearer\s+\S+|sk-[\w-]{6,}|aiza[\w-]{10,}|gsk_[\w-]{6,}|(?:api[_-]?key|token)\W{0,3}\S{6,})"
+)
+
+
+def sanitize_reason(text: str, limit: int = 120) -> str:
+    """One short line, with anything key-shaped masked, safe to log."""
+    one_line = " ".join(str(text).split())
+    return _SECRET.sub("***", one_line)[:limit]
+
+
+def log_reroute(model: Model, exc: ProviderError) -> None:
+    status = exc.status if exc.status is not None else "error"
+    print(
+        f"flux-os: reroute from={model.id} status={status} reason={sanitize_reason(str(exc))}",
+        file=sys.stderr,
+    )
+
+
+def attempts_header(attempts: list[dict[str, Any]]) -> str:
+    """``model:status`` per attempt, in order, e.g. ``gemini-3-flash-preview:429,o4-mini:200``."""
+    return ",".join(f"{a['model']}:{a.get('status') or 'err'}" for a in attempts)
 
 
 @dataclass
@@ -228,6 +261,8 @@ class FluxOS:
                 if not exc.retryable:
                     break
                 remaining = self._order(remaining, model.provider)
+                if remaining and len(attempts) < self.max_attempts:
+                    log_reroute(model, exc)
                 continue
             msg = ((resp.get("choices") or [{}])[0]).get("message") or {}
             self.router.remember_tool_calls(msg.get("tool_calls"), model.id)
@@ -237,6 +272,7 @@ class FluxOS:
             f"all {len(attempts)} attempt(s) failed; last error: {last}",
             attempts,
             last.status if last else None,
+            decision,
         )
 
     async def dispatch_stream(
@@ -262,6 +298,8 @@ class FluxOS:
                 if not exc.retryable:
                     break
                 remaining = self._order(remaining, model.provider)
+                if remaining and len(attempts) < self.max_attempts:
+                    log_reroute(model, exc)
                 continue
             attempts.append({"model": model.id, "status": 200})
             info = RouteInfo(decision, model, attempts)
@@ -270,6 +308,7 @@ class FluxOS:
             f"all {len(attempts)} attempt(s) failed; last error: {last}",
             attempts,
             last.status if last else None,
+            decision,
         )
 
     async def _relay(

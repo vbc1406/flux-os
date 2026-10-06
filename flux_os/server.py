@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ._version import __version__
 from .classifier import classify
-from .client import FluxOS, RouteInfo, UpstreamError
+from .client import FluxOS, RouteInfo, UpstreamError, attempts_header
 from .providers import ProviderError
 from .router import MODES, RoutingError, parse_directive
 from .translate import (
@@ -53,21 +53,40 @@ def _route_headers(info: RouteInfo) -> dict[str, str]:
         "x-flux-mode": "pinned" if info.decision.pinned else info.decision.mode,
         "x-flux-task": a.task,
         "x-flux-complexity": f"{a.complexity:.2f}",
+        "x-flux-attempts": attempts_header(info.attempts),
     }
 
 
-def _openai_error(status: int, message: str, kind: str = "invalid_request_error") -> JSONResponse:
-    return JSONResponse({"error": {"message": message, "type": kind, "code": status}}, status_code=status)
+def _error_headers(exc: UpstreamError) -> dict[str, str]:
+    """The x-flux-* headers for an upstream failure (what was tried, and why we got here)."""
+    if exc.decision is None or not exc.attempts:
+        return {}
+    last = exc.attempts[-1]["model"]
+    model = next((m for m in exc.decision.candidates if m.id == last), exc.decision.model)
+    return _route_headers(RouteInfo(exc.decision, model, exc.attempts))
 
 
-def _anthropic_error(status: int, message: str) -> JSONResponse:
+def _openai_error(
+    status: int,
+    message: str,
+    kind: str = "invalid_request_error",
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        {"error": {"message": message, "type": kind, "code": status}}, status_code=status, headers=headers
+    )
+
+
+def _anthropic_error(status: int, message: str, headers: dict[str, str] | None = None) -> JSONResponse:
     kind = {
         400: "invalid_request_error",
         401: "authentication_error",
         404: "not_found_error",
         429: "rate_limit_error",
     }.get(status, "api_error")
-    return JSONResponse({"type": "error", "error": {"type": kind, "message": message}}, status_code=status)
+    return JSONResponse(
+        {"type": "error", "error": {"type": kind, "message": message}}, status_code=status, headers=headers
+    )
 
 
 def _sse(event: str | None, data: Any) -> str:
@@ -269,7 +288,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             }
             if debug_errors:
                 error["attempts"] = exc.attempts
-            return JSONResponse({"error": error}, status_code=exc.status_code)
+            return JSONResponse({"error": error}, status_code=exc.status_code, headers=_error_headers(exc))
 
     # ── OpenAI Responses API ────────────────────────────────────────────────
     @app.post("/v1/responses")
@@ -310,7 +329,12 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             return _openai_error(400, str(_malformed(exc)))
         except UpstreamError as exc:
             _log_upstream_failure("responses", str(exc))
-            return _openai_error(exc.status_code, _upstream_message(debug_errors, str(exc)), "upstream_error")
+            return _openai_error(
+                exc.status_code,
+                _upstream_message(debug_errors, str(exc)),
+                "upstream_error",
+                _error_headers(exc),
+            )
 
     # ── Anthropic Messages API ──────────────────────────────────────────────
     @app.post("/v1/messages/count_tokens")
@@ -353,7 +377,9 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             return _anthropic_error(400, str(_malformed(exc)))
         except UpstreamError as exc:
             _log_upstream_failure("messages", str(exc))
-            return _anthropic_error(exc.status_code, _upstream_message(debug_errors, str(exc)))
+            return _anthropic_error(
+                exc.status_code, _upstream_message(debug_errors, str(exc)), _error_headers(exc)
+            )
 
     return app
 
