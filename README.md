@@ -45,9 +45,9 @@ flux-os route --all "Prove that there are infinitely many primes"
 ```
 
 ```text
-model:       gpt-oss-20b  (groq)
+model:       gpt-oss-120b  (groq)
 task:        reasoning   complexity 0.55   quality bar 0.84
-est. cost:   $0.000301
+est. cost:   $0.000602
 reroute to:  gpt-5.6-luna, gemini-3.1-flash-lite, gemini-3-flash-preview
 ```
 
