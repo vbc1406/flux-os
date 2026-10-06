@@ -28,8 +28,8 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ._version import __version__
 from .classifier import classify
-from .client import FluxOS, RouteInfo, UpstreamError
-from .providers import ProviderError
+from .client import FluxOS, RouteInfo, UpstreamError, attempts_header
+from .providers import EMPTY_REPLY_MESSAGE, ProviderError
 from .router import MODES, RoutingError, parse_directive
 from .translate import (
     ChatStreamToAnthropic,
@@ -39,6 +39,7 @@ from .translate import (
     chat_to_responses,
     responses_request_to_chat,
 )
+from .validate import validate_anthropic_body, validate_chat_request, validate_responses_body
 
 DIRECTIVES = ("auto", "flux-cheap", "flux-fast")
 
@@ -52,21 +53,40 @@ def _route_headers(info: RouteInfo) -> dict[str, str]:
         "x-flux-mode": "pinned" if info.decision.pinned else info.decision.mode,
         "x-flux-task": a.task,
         "x-flux-complexity": f"{a.complexity:.2f}",
+        "x-flux-attempts": attempts_header(info.attempts),
     }
 
 
-def _openai_error(status: int, message: str, kind: str = "invalid_request_error") -> JSONResponse:
-    return JSONResponse({"error": {"message": message, "type": kind, "code": status}}, status_code=status)
+def _error_headers(exc: UpstreamError) -> dict[str, str]:
+    """The x-flux-* headers for an upstream failure (what was tried, and why we got here)."""
+    if exc.decision is None or not exc.attempts:
+        return {}
+    last = exc.attempts[-1]["model"]
+    model = next((m for m in exc.decision.candidates if m.id == last), exc.decision.model)
+    return _route_headers(RouteInfo(exc.decision, model, exc.attempts))
 
 
-def _anthropic_error(status: int, message: str) -> JSONResponse:
+def _openai_error(
+    status: int,
+    message: str,
+    kind: str = "invalid_request_error",
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
+    return JSONResponse(
+        {"error": {"message": message, "type": kind, "code": status}}, status_code=status, headers=headers
+    )
+
+
+def _anthropic_error(status: int, message: str, headers: dict[str, str] | None = None) -> JSONResponse:
     kind = {
         400: "invalid_request_error",
         401: "authentication_error",
         404: "not_found_error",
         429: "rate_limit_error",
     }.get(status, "api_error")
-    return JSONResponse({"type": "error", "error": {"type": kind, "message": message}}, status_code=status)
+    return JSONResponse(
+        {"type": "error", "error": {"type": kind, "message": message}}, status_code=status, headers=headers
+    )
 
 
 def _sse(event: str | None, data: Any) -> str:
@@ -74,11 +94,22 @@ def _sse(event: str | None, data: Any) -> str:
     return f"event: {event}\ndata: {payload}\n\n" if event else f"data: {payload}\n\n"
 
 
+# Anything raised by request parsing/translation for a malformed body is the client's fault.
+_MALFORMED = (TypeError, ValueError, AttributeError, KeyError, IndexError, RecursionError, OverflowError)
+
+
+def _malformed(exc: Exception) -> RoutingError:
+    print(f"flux-os: malformed request: {type(exc).__name__}", file=sys.stderr)
+    return RoutingError("malformed request body")
+
+
 def _log_upstream_failure(context: str, detail: str) -> None:
     print(f"flux-os: {context} failed: {detail}", file=sys.stderr)
 
 
-def _upstream_message(debug: bool, detail: str) -> str:
+def _upstream_message(debug: bool, detail: str, exc: Exception | None = None) -> str:
+    if getattr(exc, "attempts", None) and exc.attempts[-1].get("code") == "empty_reply":  # type: ignore[union-attr]
+        return EMPTY_REPLY_MESSAGE  # fixed text, safe to show and actionable
     return detail if debug else "upstream request failed"
 
 
@@ -174,7 +205,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
     async def read_json(request: Request) -> dict[str, Any]:
         try:
             body = await request.json()
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             raise RoutingError("request body must be valid JSON") from exc
         if not isinstance(body, dict):
             raise RoutingError("request body must be a JSON object")
@@ -211,9 +242,12 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
     async def route(request: Request) -> Response:
         try:
             req = await read_json(request)
+            if req.get("messages") is None:
+                req["messages"] = []
+            validate_chat_request(req)
             apply_headers(request, req)
             decision = flux.route(
-                req.get("messages") or [],
+                req["messages"],
                 model=req.get("model"),
                 tools=req.get("tools"),
                 response_format=req.get("response_format"),
@@ -221,6 +255,8 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             )
         except RoutingError as exc:
             return _openai_error(400, str(exc))
+        except _MALFORMED as exc:
+            return _openai_error(400, str(_malformed(exc)))
         return JSONResponse(decision.as_dict())
 
     # ── OpenAI Chat Completions ─────────────────────────────────────────────
@@ -230,6 +266,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             req = await read_json(request)
             if not isinstance(req.get("messages"), list) or not req["messages"]:
                 raise RoutingError("'messages' must be a non-empty list")
+            validate_chat_request(req)
             reroute = apply_headers(request, req)
             if req.get("stream"):
                 stream, info = await flux.dispatch_stream(req, reroute=reroute)
@@ -242,22 +279,25 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             return JSONResponse(resp, headers=_route_headers(info))
         except RoutingError as exc:
             return _openai_error(400, str(exc))
+        except _MALFORMED as exc:
+            return _openai_error(400, str(_malformed(exc)))
         except UpstreamError as exc:
             _log_upstream_failure("chat completion", str(exc))
             error: dict[str, Any] = {
-                "message": _upstream_message(debug_errors, str(exc)),
+                "message": _upstream_message(debug_errors, str(exc), exc),
                 "type": "upstream_error",
                 "code": exc.status_code,
             }
             if debug_errors:
                 error["attempts"] = exc.attempts
-            return JSONResponse({"error": error}, status_code=exc.status_code)
+            return JSONResponse({"error": error}, status_code=exc.status_code, headers=_error_headers(exc))
 
     # ── OpenAI Responses API ────────────────────────────────────────────────
     @app.post("/v1/responses")
     async def responses(request: Request) -> Response:
         try:
             body = await read_json(request)
+            validate_responses_body(body)
             prev = body.get("previous_response_id")
             past = history.get(prev)
             if prev and past is None:
@@ -267,6 +307,7 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             req = responses_request_to_chat(body, past)
             if not req["messages"]:
                 raise RoutingError("'input' must not be empty")
+            validate_chat_request(req)
             reroute = apply_headers(request, req)
             resp_id = f"resp_{uuid.uuid4().hex}"
             if req.get("stream"):
@@ -286,27 +327,41 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             )
         except RoutingError as exc:
             return _openai_error(400, str(exc))
+        except _MALFORMED as exc:
+            return _openai_error(400, str(_malformed(exc)))
         except UpstreamError as exc:
             _log_upstream_failure("responses", str(exc))
-            return _openai_error(exc.status_code, _upstream_message(debug_errors, str(exc)), "upstream_error")
+            return _openai_error(
+                exc.status_code,
+                _upstream_message(debug_errors, str(exc), exc),
+                "upstream_error",
+                _error_headers(exc),
+            )
 
     # ── Anthropic Messages API ──────────────────────────────────────────────
     @app.post("/v1/messages/count_tokens")
     async def count_tokens(request: Request) -> Response:
         try:
-            req = anthropic_request_to_chat(await read_json(request))
+            body = await read_json(request)
+            validate_anthropic_body(body)
+            req = anthropic_request_to_chat(body)
+            validate_chat_request(req)
+            a = classify(req["messages"], tools=req.get("tools"))
         except RoutingError as exc:
             return _anthropic_error(400, str(exc))
-        a = classify(req["messages"], tools=req.get("tools"))
+        except _MALFORMED as exc:
+            return _anthropic_error(400, str(_malformed(exc)))
         return JSONResponse({"input_tokens": a.input_tokens})
 
     @app.post("/v1/messages")
     async def messages(request: Request) -> Response:
         try:
             body = await read_json(request)
+            validate_anthropic_body(body)
             req = anthropic_request_to_chat(body)
             if not req["messages"]:
                 raise RoutingError("'messages' must not be empty")
+            validate_chat_request(req)
             reroute = apply_headers(request, req)
             if req.get("stream"):
                 req["stream_options"] = {"include_usage": True}
@@ -320,9 +375,13 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
             return JSONResponse(chat_to_anthropic_response(resp, info.model.id), headers=_route_headers(info))
         except RoutingError as exc:
             return _anthropic_error(400, str(exc))
+        except _MALFORMED as exc:
+            return _anthropic_error(400, str(_malformed(exc)))
         except UpstreamError as exc:
             _log_upstream_failure("messages", str(exc))
-            return _anthropic_error(exc.status_code, _upstream_message(debug_errors, str(exc)))
+            return _anthropic_error(
+                exc.status_code, _upstream_message(debug_errors, str(exc), exc), _error_headers(exc)
+            )
 
     return app
 

@@ -15,11 +15,15 @@ as a proxy or a Python library. No dashboard, no database, no setup.
 
 ```text
 "hi"                                          → gpt-oss-20b      (groq)     ~$0.00004
-"Translate 'good morning' into Spanish"       → mistral-small-4  (mistral)  ~$0.0002
+"Translate 'good morning' into Spanish"       → gpt-oss-20b      (groq)     ~$0.0001
 "Write a Python function that parses dates"   → gpt-oss-20b      (groq)     ~$0.0004
 "Implement a lock-free concurrent hash map in
- Rust, thread-safe, no global locks, ..."     → o4-mini          (openai)   ~$0.0053
+ Rust, thread-safe, no global locks, and
+ handle all edge cases"                       → gpt-oss-120b     (groq)     ~$0.0007
 ```
+
+(Decisions with `GROQ_API_KEY`, `OPENAI_API_KEY` and `MISTRAL_API_KEY` set. Which model wins depends on the
+keys you have, and `flux-os route` shows it for your setup. A test keeps these lines honest.)
 
 Most traffic doesn't need your most expensive model. flux-os reads each request (task type,
 difficulty, tools, images, JSON mode, context size), sets a quality bar, and picks the
@@ -41,10 +45,10 @@ flux-os route --all "Prove that there are infinitely many primes"
 ```
 
 ```text
-model:       gpt-5.6-luna  (openai)
+model:       gpt-oss-20b  (groq)
 task:        reasoning   complexity 0.55   quality bar 0.84
-est. cost:   $0.001203
-reroute to:  gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-3.8-flash
+est. cost:   $0.000301
+reroute to:  gpt-5.6-luna, gemini-3.1-flash-lite, gemini-3-flash-preview
 ```
 
 Then set keys for the providers you use (any subset) and start the proxy:
@@ -127,8 +131,17 @@ request ─► classify ─► filter ─► quality bar ─► rank ─► call
 4. **Rank.** Models that clear the bar are sorted by estimated cost for this request, and the rest follow by quality. That ordered list is also the reroute order.
 5. **Call, and reroute on failure.** Rate limits, 5xx errors, timeouts, auth errors, unknown models and capability errors move the request to the next candidate, trying other providers before the one that failed. Plain bad requests (a 400) are returned as they are, and streams are only rerouted before the first token.
 
-**Agent tool loops stay on one model.** When a tool result comes back, flux-os sends it to the model
-that made the tool call, so an agent doesn't change models in the middle of a step.
+**Agent tool loops stay on one model, while that model is healthy.** When a tool result comes back,
+flux-os sends it to the model that made the tool call, so an agent doesn't change models in the
+middle of a step. Two limits to know about:
+
+- The tool-call-id → model map lives in memory of **one flux-os process**. After a restart, behind
+  several replicas without sticky routing, or for tool-call ids flux-os never issued, the tool result
+  is routed fresh (flux-os logs this once per id to stderr). Run a single instance for agent traffic.
+- If the model holding the loop fails (429, 5xx, ...), flux-os reroutes **mid-loop** to the next
+  candidate, possibly another provider, and sends it the full message history unchanged. That is by
+  design: an answer from a different model beats an error. Pin a model and leave rerouting off
+  (the default for pinned models) if you need a loop to stay put or fail.
 
 ### Modes
 
@@ -175,7 +188,9 @@ Everything works with nothing but provider keys. For more control:
 | `FLUX_OS_DEFAULT_MODE` | `auto` | `auto`, `cheap` or `fast` |
 | `FLUX_OS_ROUTE_ALL` | off | Treat every model name as `auto`, for tools that hard-code a model (Claude Code) |
 | `FLUX_OS_REROUTE_PINNED` | off | Let pinned models fall back too (per request: `X-Flux-Reroute: true`) |
+| `FLUX_OS_ALLOW_OVERSIZE` | off | Forward a pinned catalog model's request even when the input exceeds its context window (default: loud 400, nothing sent) |
 | `FLUX_OS_MAX_ATTEMPTS` | `3` | Models to try before giving up |
+| `FLUX_OS_QUALITY_TOLERANCE` | `0.02` | A model rated within this distance below the quality bar still counts as clearing it (`0` = strict bar) |
 | `FLUX_OS_QUALITY_OFFSET` | `0` | Shift every quality bar, e.g. `0.05` for stricter or `-0.05` for cheaper |
 | `FLUX_OS_ONLY_MODELS` / `FLUX_OS_DISABLE` | | Comma-separated model ids or `provider:<name>` |
 | `FLUX_OS_TIMEOUT` | `120` | Upstream timeout in seconds |
@@ -200,6 +215,12 @@ instead. The catalog decides whether a coding turn needs a frontier model.
 capabilities and per-task quality ratings. Run `flux-os models --all` to list them. The quality
 ratings are editorial estimates built from public benchmarks, not measurements of your
 workload.
+
+**Models your account can't call.** The catalog lists models, not what your plan allows. A model
+that is gated on your tier (for example `mistral-large-3` returning 403 `tier_not_allowed`) or heavily rate-limited will be
+picked, fail, and be rerouted on every request that selects it. That costs latency, not
+correctness. Check `x-flux-attempts` and the stderr `reroute` lines to see it, then switch the model
+off with `FLUX_OS_DISABLE=mistral-large-3` (or a whole provider with `FLUX_OS_DISABLE=provider:mistral`).
 
 ## Security
 
@@ -232,6 +253,10 @@ is a small LRU cache of tool-call ids (for agent loop continuity) and recent Res
 (for `previous_response_id`).
 
 Known limits:
+- Reasoning models (gpt-oss, o-series, Gemini thinking) spend `max_tokens` on hidden reasoning. With a
+  small limit (say 50) they can return nothing. flux-os treats an empty reply with
+  `finish_reason: length` as a failure and reroutes (non-streaming only); if every candidate does it,
+  you get a 502 telling you to raise `max_tokens`. As a floor, use 1000+ for reasoning-heavy work.
 - The Responses API supports function tools only. Built-in tools like `web_search` and `file_search` are ignored.
 - Anthropic server tools (`web_search_*`, `bash_*`, and similar) aren't forwarded. Client tools work.
 - Extended-thinking blocks aren't carried across providers.
