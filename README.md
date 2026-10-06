@@ -184,6 +184,7 @@ Everything works with nothing but provider keys. For more control:
 | `FLUX_OS_DEFAULT_MODE` | `auto` | `auto`, `cheap` or `fast` |
 | `FLUX_OS_ROUTE_ALL` | off | Treat every model name as `auto`, for tools that hard-code a model (Claude Code) |
 | `FLUX_OS_REROUTE_PINNED` | off | Let pinned models fall back too (per request: `X-Flux-Reroute: true`) |
+| `FLUX_OS_ALLOW_OVERSIZE` | off | Forward a pinned catalog model's request even when the input exceeds its context window (default: loud 400, nothing sent) |
 | `FLUX_OS_MAX_ATTEMPTS` | `3` | Models to try before giving up |
 | `FLUX_OS_QUALITY_OFFSET` | `0` | Shift every quality bar, e.g. `0.05` for stricter or `-0.05` for cheaper |
 | `FLUX_OS_ONLY_MODELS` / `FLUX_OS_DISABLE` | | Comma-separated model ids or `provider:<name>` |
