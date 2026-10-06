@@ -129,6 +129,12 @@ class Router:
         if quality_offset is None:
             quality_offset = float(os.environ.get("FLUX_OS_QUALITY_OFFSET", "0") or 0)
         self.quality_offset = quality_offset
+        self.allow_oversize = os.environ.get("FLUX_OS_ALLOW_OVERSIZE", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
         self.require_credentials = require_credentials
         self._tool_calls = _LRU(10_000)
         self._extra_content = _LRU(10_000)
@@ -306,6 +312,17 @@ class Router:
         if self.require_credentials and not self.catalog.providers[model.provider].configured:
             raise RoutingError(
                 f"model '{name}' needs provider '{model.provider}', which has no API key configured"
+            )
+        if (
+            not self.allow_oversize
+            and self.catalog.get(name) is not None
+            and analysis.input_tokens > model.context_window
+        ):
+            raise RoutingError(
+                f"request is ~{analysis.input_tokens} tokens but '{model.id}' has a "
+                f"{model.context_window}-token context window; nothing was sent. "
+                "Use model='auto' to pick a larger-context model, or set FLUX_OS_ALLOW_OVERSIZE=1 "
+                "to forward it anyway"
             )
         return Decision(
             model=model,
