@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import random
 from typing import Any
 
@@ -26,9 +27,9 @@ VALID: dict[str, dict[str, Any]] = {
     "/v1/messages/count_tokens": {"model": "auto", "messages": [{"role": "user", "content": "hi"}]},
 }
 
-NESTED: Any = "x"
-for _ in range(5000):
-    NESTED = [NESTED]
+NESTED_JSON = (
+    "[" * 5000 + '"x"' + "]" * 5000
+)  # raw text: building it as a Python object would blow the client's own json.dumps
 WEIRD: list[Any] = [
     5,
     -1,
@@ -110,11 +111,15 @@ async def test_error_bodies_do_not_echo_values(http, path) -> None:
 
 @pytest.mark.parametrize("path", ENDPOINTS)
 async def test_deeply_nested_and_non_object_bodies(http, path) -> None:
-    body = copy.deepcopy(VALID[path])
     key = "input" if path == "/v1/responses" else "messages"
-    body[key] = [{"role": "user", "content": NESTED}] if key == "messages" else [{"content": NESTED}]
-    for payload in (body, [1, 2], "str", 5, None):
-        r = await asyncio.wait_for(http.post(path, json=payload), 20)
+    item = (
+        f'{{"role":"user","content":{NESTED_JSON}}}' if key == "messages" else f'{{"content":{NESTED_JSON}}}'
+    )
+    nested = json.dumps({**VALID[path], key: 0}).replace(f'"{key}": 0', f'"{key}": [{item}]')
+    for payload in (nested, "[1, 2]", '"str"', "5", "null"):
+        r = await asyncio.wait_for(
+            http.post(path, content=payload, headers={"content-type": "application/json"}), 20
+        )
         assert r.status_code < 500, (path, r.status_code)
     r = await http.post(path, content=b"[" * 200_000, headers={"content-type": "application/json"})
     assert r.status_code == 400
