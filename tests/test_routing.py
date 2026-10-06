@@ -173,3 +173,41 @@ def test_routing_is_fast(router: Router) -> None:
     for _ in range(200):
         router.route(msgs(HARD))
     assert (time.perf_counter() - start) / 200 < 0.005
+
+
+def _two_model_catalog(cheap_quality: float) -> Catalog:
+    from flux_os.catalog import Model
+
+    base = Catalog.load()
+    models = [
+        Model(
+            id="cheap", provider="openai", input_cost=0.1, output_cost=0.1, quality={"general": cheap_quality}
+        ),
+        Model(id="pricey", provider="openai", input_cost=5.0, output_cost=5.0, quality={"general": 0.95}),
+    ]
+    return Catalog(providers=base.providers, models=models)
+
+
+def test_quality_tolerance_band_stops_razor_thin_bumps() -> None:
+    probe = Router(_two_model_catalog(0.5), quality_tolerance=0.0, require_credentials=False)
+    bar = probe.route(msgs("hi"), model="auto").quality_bar
+    # the cheap model misses the bar by 0.002 (the real-world gpt-oss-20b vs gpt-oss-120b case)
+    catalog = _two_model_catalog(round(bar - 0.002, 4))
+    strict = Router(catalog, quality_tolerance=0.0, require_credentials=False)
+    assert strict.route(msgs("hi"), model="auto").model.id == "pricey"
+    banded = Router(catalog, quality_tolerance=0.02, require_credentials=False)
+    d = banded.route(msgs("hi"), model="auto")
+    assert d.model.id == "cheap" and d.quality_bar == bar  # reported bar itself is unchanged
+    # but a real gap (0.05 below the bar) is still not waved through
+    far = Router(_two_model_catalog(round(bar - 0.05, 4)), quality_tolerance=0.02, require_credentials=False)
+    assert far.route(msgs("hi"), model="auto").model.id == "pricey"
+    # deterministic
+    assert [banded.route(msgs("hi"), model="auto").model.id for _ in range(5)] == ["cheap"] * 5
+
+
+def test_quality_tolerance_env_and_default(monkeypatch: pytest.MonkeyPatch, keys: None) -> None:
+    assert Router(Catalog.load()).quality_tolerance == 0.02
+    monkeypatch.setenv("FLUX_OS_QUALITY_TOLERANCE", "0")
+    assert Router(Catalog.load()).quality_tolerance == 0.0
+    with pytest.raises(ValueError):
+        Router(Catalog.load(), quality_tolerance=-0.1)

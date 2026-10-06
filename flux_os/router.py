@@ -13,6 +13,7 @@ Deterministic, explainable, no network calls.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -42,6 +43,9 @@ BAR_BASE = 0.72
 BAR_SLOPE = 0.22
 TOOL_BAR_MIN = 0.80
 CHEAP_BAR_DISCOUNT = 0.06
+# Ratings are editorial and rounded to 0.01, so a model within this distance of the bar counts as
+# clearing it (otherwise a 0.002 shortfall buys a pricier model with no measurable quality gain).
+DEFAULT_QUALITY_TOLERANCE = 0.02
 
 
 class RoutingError(Exception):
@@ -92,17 +96,17 @@ class Decision:
 class _LRU:
     def __init__(self, size: int) -> None:
         self.size = size
-        self.data: OrderedDict[str, str] = OrderedDict()
+        self.data: OrderedDict[str, Any] = OrderedDict()
         self.lock = threading.Lock()
 
-    def get(self, key: str) -> str | None:
+    def get(self, key: str) -> Any:
         with self.lock:
             value = self.data.get(key)
             if value is not None:
                 self.data.move_to_end(key)
             return value
 
-    def put(self, key: str, value: str) -> None:
+    def put(self, key: str, value: Any) -> None:
         with self.lock:
             self.data[key] = value
             self.data.move_to_end(key)
@@ -119,6 +123,7 @@ class Router:
         *,
         default_mode: str | None = None,
         quality_offset: float | None = None,
+        quality_tolerance: float | None = None,
         require_credentials: bool = True,
     ) -> None:
         self.catalog = catalog or Catalog.load()
@@ -128,8 +133,22 @@ class Router:
         if quality_offset is None:
             quality_offset = float(os.environ.get("FLUX_OS_QUALITY_OFFSET", "0") or 0)
         self.quality_offset = quality_offset
+        if quality_tolerance is None:
+            raw = os.environ.get("FLUX_OS_QUALITY_TOLERANCE")
+            quality_tolerance = float(raw) if raw not in (None, "") else DEFAULT_QUALITY_TOLERANCE
+        if quality_tolerance < 0:
+            raise ValueError("quality_tolerance must be >= 0")
+        self.quality_tolerance = quality_tolerance
+        self.allow_oversize = os.environ.get("FLUX_OS_ALLOW_OVERSIZE", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
         self.require_credentials = require_credentials
         self._tool_calls = _LRU(10_000)
+        self._extra_content = _LRU(10_000)
+        self._unknown_logged = _LRU(10_000)
 
     # ── agent tool-loop continuity ──────────────────────────────────────────
     def remember_tool_calls(self, tool_calls: list[dict[str, Any]] | None, model_id: str) -> None:
@@ -137,6 +156,31 @@ class Router:
         for tc in tool_calls or []:
             if isinstance(tc, dict) and tc.get("id"):
                 self._tool_calls.put(str(tc["id"]), model_id)
+                if tc.get("extra_content"):
+                    self._extra_content.put(str(tc["id"]), tc["extra_content"])
+
+    def restore_extra_content(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Re-attach provider-opaque ``extra_content`` (Gemini 3 ``thought_signature``) to
+        assistant tool calls that a client dropped when echoing history back.
+
+        Returns ``messages`` itself when nothing needs restoring.
+        """
+        out: list[dict[str, Any]] | None = None
+        for i, m in enumerate(messages):
+            calls = m.get("tool_calls") if m.get("role") == "assistant" else None
+            if not isinstance(calls, list):
+                continue
+            fixed = []
+            for tc in calls:
+                saved = None
+                if isinstance(tc, dict) and tc.get("id") and not tc.get("extra_content"):
+                    saved = self._extra_content.get(str(tc["id"]))
+                fixed.append({**tc, "extra_content": saved} if saved else tc)
+            if any(a is not b for a, b in zip(fixed, calls, strict=True)):
+                if out is None:
+                    out = list(messages)
+                out[i] = {**m, "tool_calls": fixed}
+        return out if out is not None else messages
 
     def _tool_loop_model(self, messages: list[dict[str, Any]]) -> str | None:
         for m in reversed(messages):
@@ -144,9 +188,20 @@ class Router:
                 found = self._tool_calls.get(str(m["tool_call_id"]))
                 if found:
                     return found
+                self._log_unknown_tool_call(str(m["tool_call_id"]))
             elif m.get("role") != "tool":
                 break
         return None
+
+    def _log_unknown_tool_call(self, call_id: str) -> None:
+        """Once per id: this process never issued it (restart, another replica, or a foreign client)."""
+        if self._unknown_logged.get(call_id) is None:
+            self._unknown_logged.put(call_id, "1")
+            print(
+                f"flux-os: tool result for unknown tool_call_id {call_id[:40]!r}; "
+                "routing it fresh (the issuing model is not remembered across restarts or replicas)",
+                file=sys.stderr,
+            )
 
     # ── routing ─────────────────────────────────────────────────────────────
     def pool(self) -> list[Model]:
@@ -229,8 +284,9 @@ class Router:
         def cost(m: Model) -> float:
             return m.estimate_cost(analysis.input_tokens, analysis.output_tokens)
 
-        passing = [m for m in eligible if quality(m) >= bar]
-        failing = [m for m in eligible if quality(m) < bar]
+        floor = bar - self.quality_tolerance - 1e-9  # epsilon: a rating exactly on the floor must clear it
+        passing = [m for m in eligible if quality(m) >= floor]
+        failing = [m for m in eligible if quality(m) < floor]
         if mode == "fast":
             ranked = sorted(passing, key=lambda m: (m.latency_ms, cost(m)))
             ranked += sorted(failing, key=lambda m: (-quality(m), m.latency_ms))
@@ -267,6 +323,17 @@ class Router:
         if self.require_credentials and not self.catalog.providers[model.provider].configured:
             raise RoutingError(
                 f"model '{name}' needs provider '{model.provider}', which has no API key configured"
+            )
+        if (
+            not self.allow_oversize
+            and self.catalog.get(name) is not None
+            and analysis.input_tokens > model.context_window
+        ):
+            raise RoutingError(
+                f"request is ~{analysis.input_tokens} tokens but '{model.id}' has a "
+                f"{model.context_window}-token context window; nothing was sent. "
+                "Use model='auto' to pick a larger-context model, or set FLUX_OS_ALLOW_OVERSIZE=1 "
+                "to forward it anyway"
             )
         return Decision(
             model=model,

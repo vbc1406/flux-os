@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
+import sys
 import threading
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
@@ -31,10 +33,41 @@ from .router import Decision, Router, RoutingError, parse_directive
 class UpstreamError(Exception):
     """Every candidate model failed."""
 
-    def __init__(self, message: str, attempts: list[dict[str, Any]], status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        attempts: list[dict[str, Any]],
+        status: int | None = None,
+        decision: Decision | None = None,
+    ):
         super().__init__(message)
         self.attempts = attempts
+        self.decision = decision
         self.status_code = status if status and 400 <= status < 600 else 502
+
+
+_SECRET = re.compile(
+    r"(?i)(bearer\s+\S+|sk-[\w-]{6,}|aiza[\w-]{10,}|gsk_[\w-]{6,}|(?:api[_-]?key|token)\W{0,3}\S{6,})"
+)
+
+
+def sanitize_reason(text: str, limit: int = 120) -> str:
+    """One short line, with anything key-shaped masked, safe to log."""
+    one_line = " ".join(str(text).split())
+    return _SECRET.sub("***", one_line)[:limit]
+
+
+def log_reroute(model: Model, exc: ProviderError) -> None:
+    status = exc.status if exc.status is not None else (exc.code or "error")
+    print(
+        f"flux-os: reroute from={model.id} status={status} reason={sanitize_reason(str(exc))}",
+        file=sys.stderr,
+    )
+
+
+def attempts_header(attempts: list[dict[str, Any]]) -> str:
+    """``model:status`` per attempt, in order, e.g. ``gemini-3-flash-preview:429,o4-mini:200``."""
+    return ",".join(f"{a['model']}:{a.get('status') or a.get('code') or 'err'}" for a in attempts)
 
 
 @dataclass
@@ -195,6 +228,13 @@ class FluxOS:
                 pass
         return decision, candidates
 
+    def _restored(self, req: dict[str, Any]) -> dict[str, Any]:
+        messages = req.get("messages")
+        if not isinstance(messages, list):
+            return req
+        fixed = self.router.restore_extra_content(messages)
+        return req if fixed is messages else {**req, "messages": fixed}
+
     def _order(self, remaining: list[Model], failed_provider: str | None) -> list[Model]:
         """After a failure, try other providers first (outages are usually provider-wide)."""
         if not failed_provider:
@@ -206,6 +246,7 @@ class FluxOS:
         self, req: dict[str, Any], *, reroute: bool | None = None
     ) -> tuple[dict[str, Any], RouteInfo]:
         """Route and call (non-streaming). Returns (openai_chat_completion, RouteInfo)."""
+        req = self._restored(req)
         decision, remaining = self._decide(req, reroute)
         attempts: list[dict[str, Any]] = []
         last: ProviderError | None = None
@@ -215,11 +256,15 @@ class FluxOS:
             try:
                 resp = await self.upstream.complete(req, model, provider)
             except ProviderError as exc:
-                attempts.append({"model": model.id, "error": str(exc), "status": exc.status})
+                attempts.append(
+                    {"model": model.id, "error": str(exc), "status": exc.status, "code": exc.code}
+                )
                 last = exc
                 if not exc.retryable:
                     break
                 remaining = self._order(remaining, model.provider)
+                if remaining and len(attempts) < self.max_attempts:
+                    log_reroute(model, exc)
                 continue
             msg = ((resp.get("choices") or [{}])[0]).get("message") or {}
             self.router.remember_tool_calls(msg.get("tool_calls"), model.id)
@@ -229,12 +274,14 @@ class FluxOS:
             f"all {len(attempts)} attempt(s) failed; last error: {last}",
             attempts,
             last.status if last else None,
+            decision,
         )
 
     async def dispatch_stream(
         self, req: dict[str, Any], *, reroute: bool | None = None
     ) -> tuple[AsyncIterator[dict[str, Any]], RouteInfo]:
         """Route and call (streaming). Reroutes only before the first chunk is received."""
+        req = self._restored(req)
         decision, remaining = self._decide(req, reroute)
         attempts: list[dict[str, Any]] = []
         last: ProviderError | None = None
@@ -253,6 +300,8 @@ class FluxOS:
                 if not exc.retryable:
                     break
                 remaining = self._order(remaining, model.provider)
+                if remaining and len(attempts) < self.max_attempts:
+                    log_reroute(model, exc)
                 continue
             attempts.append({"model": model.id, "status": 200})
             info = RouteInfo(decision, model, attempts)
@@ -261,18 +310,22 @@ class FluxOS:
             f"all {len(attempts)} attempt(s) failed; last error: {last}",
             attempts,
             last.status if last else None,
+            decision,
         )
 
     async def _relay(
         self, first: dict[str, Any] | None, gen: AsyncIterator[dict[str, Any]], model_id: str
     ) -> AsyncIterator[dict[str, Any]]:
-        calls: dict[int, str] = {}
+        calls: dict[int, dict[str, Any]] = {}
 
         def note(chunk: dict[str, Any]) -> None:
             for choice in chunk.get("choices") or []:
                 for tc in (choice.get("delta") or {}).get("tool_calls") or []:
+                    idx = int(tc.get("index", 0))
                     if tc.get("id"):
-                        calls[int(tc.get("index", 0))] = tc["id"]
+                        calls[idx] = {"id": tc["id"]}
+                    if tc.get("extra_content") and idx in calls:
+                        calls[idx]["extra_content"] = tc["extra_content"]
 
         try:
             if first is not None:
@@ -284,7 +337,7 @@ class FluxOS:
         finally:
             await gen.aclose()  # type: ignore[attr-defined]
             if calls:
-                self.router.remember_tool_calls([{"id": i} for i in calls.values()], model_id)
+                self.router.remember_tool_calls(list(calls.values()), model_id)
 
     async def acreate(self, **req: Any) -> Any:
         """Async OpenAI-style call. ``stream=True`` returns an async iterator of chunks."""
