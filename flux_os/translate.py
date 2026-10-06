@@ -349,16 +349,17 @@ def anthropic_request_to_chat(body: dict[str, Any]) -> dict[str, Any]:
                 if src.get("type") == "text" and src.get("data"):
                     parts.append({"type": "text", "text": src["data"]})
             elif kind == "tool_use":
-                tool_calls.append(
-                    {
-                        "id": block.get("id") or _uid("toolu"),
-                        "type": "function",
-                        "function": {
-                            "name": block.get("name", ""),
-                            "arguments": json.dumps(block.get("input") or {}),
-                        },
-                    }
-                )
+                call: dict[str, Any] = {
+                    "id": block.get("id") or _uid("toolu"),
+                    "type": "function",
+                    "function": {
+                        "name": block.get("name", ""),
+                        "arguments": json.dumps(block.get("input") or {}),
+                    },
+                }
+                if block.get("extra_content"):
+                    call["extra_content"] = block["extra_content"]
+                tool_calls.append(call)
             elif kind == "tool_result":
                 result = block.get("content")
                 text = result if isinstance(result, str) else content_text(result)
@@ -434,14 +435,15 @@ def chat_to_anthropic_response(resp: dict[str, Any], model: str) -> dict[str, An
         content.append({"type": "text", "text": text})
     for tc in message.get("tool_calls") or []:
         fn = tc.get("function") or {}
-        content.append(
-            {
-                "type": "tool_use",
-                "id": tc.get("id") or _uid("toolu"),
-                "name": fn.get("name", ""),
-                "input": _parse_args(fn.get("arguments")),
-            }
-        )
+        block: dict[str, Any] = {
+            "type": "tool_use",
+            "id": tc.get("id") or _uid("toolu"),
+            "name": fn.get("name", ""),
+            "input": _parse_args(fn.get("arguments")),
+        }
+        if tc.get("extra_content"):
+            block["extra_content"] = tc["extra_content"]  # opaque (Gemini thought_signature)
+        content.append(block)
     usage = resp.get("usage") or {}
     return {
         "id": _uid("msg"),
@@ -535,19 +537,18 @@ class ChatStreamToAnthropic:
                     out += self._close()
                     self.index += 1
                     self.open = key
+                    block: dict[str, Any] = {
+                        "type": "tool_use",
+                        "id": tc.get("id") or _uid("toolu"),
+                        "name": fn.get("name", ""),
+                        "input": {},
+                    }
+                    if tc.get("extra_content"):
+                        block["extra_content"] = tc["extra_content"]  # opaque (Gemini thought_signature)
                     out.append(
                         (
                             "content_block_start",
-                            {
-                                "type": "content_block_start",
-                                "index": self.index,
-                                "content_block": {
-                                    "type": "tool_use",
-                                    "id": tc.get("id") or _uid("toolu"),
-                                    "name": fn.get("name", ""),
-                                    "input": {},
-                                },
-                            },
+                            {"type": "content_block_start", "index": self.index, "content_block": block},
                         )
                     )
                 if fn.get("arguments"):

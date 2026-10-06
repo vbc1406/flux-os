@@ -195,6 +195,13 @@ class FluxOS:
                 pass
         return decision, candidates
 
+    def _restored(self, req: dict[str, Any]) -> dict[str, Any]:
+        messages = req.get("messages")
+        if not isinstance(messages, list):
+            return req
+        fixed = self.router.restore_extra_content(messages)
+        return req if fixed is messages else {**req, "messages": fixed}
+
     def _order(self, remaining: list[Model], failed_provider: str | None) -> list[Model]:
         """After a failure, try other providers first (outages are usually provider-wide)."""
         if not failed_provider:
@@ -206,6 +213,7 @@ class FluxOS:
         self, req: dict[str, Any], *, reroute: bool | None = None
     ) -> tuple[dict[str, Any], RouteInfo]:
         """Route and call (non-streaming). Returns (openai_chat_completion, RouteInfo)."""
+        req = self._restored(req)
         decision, remaining = self._decide(req, reroute)
         attempts: list[dict[str, Any]] = []
         last: ProviderError | None = None
@@ -235,6 +243,7 @@ class FluxOS:
         self, req: dict[str, Any], *, reroute: bool | None = None
     ) -> tuple[AsyncIterator[dict[str, Any]], RouteInfo]:
         """Route and call (streaming). Reroutes only before the first chunk is received."""
+        req = self._restored(req)
         decision, remaining = self._decide(req, reroute)
         attempts: list[dict[str, Any]] = []
         last: ProviderError | None = None
@@ -266,13 +275,16 @@ class FluxOS:
     async def _relay(
         self, first: dict[str, Any] | None, gen: AsyncIterator[dict[str, Any]], model_id: str
     ) -> AsyncIterator[dict[str, Any]]:
-        calls: dict[int, str] = {}
+        calls: dict[int, dict[str, Any]] = {}
 
         def note(chunk: dict[str, Any]) -> None:
             for choice in chunk.get("choices") or []:
                 for tc in (choice.get("delta") or {}).get("tool_calls") or []:
+                    idx = int(tc.get("index", 0))
                     if tc.get("id"):
-                        calls[int(tc.get("index", 0))] = tc["id"]
+                        calls[idx] = {"id": tc["id"]}
+                    if tc.get("extra_content") and idx in calls:
+                        calls[idx]["extra_content"] = tc["extra_content"]
 
         try:
             if first is not None:
@@ -284,7 +296,7 @@ class FluxOS:
         finally:
             await gen.aclose()  # type: ignore[attr-defined]
             if calls:
-                self.router.remember_tool_calls([{"id": i} for i in calls.values()], model_id)
+                self.router.remember_tool_calls(list(calls.values()), model_id)
 
     async def acreate(self, **req: Any) -> Any:
         """Async OpenAI-style call. ``stream=True`` returns an async iterator of chunks."""

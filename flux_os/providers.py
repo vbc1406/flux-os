@@ -54,12 +54,34 @@ class ProviderError(Exception):
         self.provider = provider
 
 
+def _without_extra_content(message: dict[str, Any]) -> dict[str, Any]:
+    """Drop Gemini's per-tool-call ``extra_content`` (thought_signature) for other providers,
+    so a tool loop that started on Gemini can continue on a model that rejects unknown fields."""
+    calls = message.get("tool_calls")
+    if not isinstance(calls, list) or not any(isinstance(c, dict) and "extra_content" in c for c in calls):
+        return message
+    return {
+        **message,
+        "tool_calls": [
+            {k: v for k, v in c.items() if k != "extra_content"} if isinstance(c, dict) else c for c in calls
+        ],
+    }
+
+
 def _retryable(status: int, text: str) -> bool:
     if status in (400,):
         lowered = text.lower()
         return any(
             s in lowered
-            for s in ("not supported", "unsupported", "does not support", "context", "too long", "maximum")
+            for s in (
+                "not supported",
+                "unsupported",
+                "does not support",
+                "context",
+                "too long",
+                "maximum",
+                "thought_signature",
+            )
         )
     return status not in (499,)
 
@@ -113,6 +135,8 @@ class Upstream:
             ]
         if provider.name == "openai" and "max_tokens" in body:
             body.setdefault("max_completion_tokens", body.pop("max_tokens"))
+        if provider.name != "google":
+            body["messages"] = [_without_extra_content(m) for m in body["messages"]]
         for p in model.drop_params:
             body.pop(p, None)
         if not body.get("tools"):

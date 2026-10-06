@@ -92,17 +92,17 @@ class Decision:
 class _LRU:
     def __init__(self, size: int) -> None:
         self.size = size
-        self.data: OrderedDict[str, str] = OrderedDict()
+        self.data: OrderedDict[str, Any] = OrderedDict()
         self.lock = threading.Lock()
 
-    def get(self, key: str) -> str | None:
+    def get(self, key: str) -> Any:
         with self.lock:
             value = self.data.get(key)
             if value is not None:
                 self.data.move_to_end(key)
             return value
 
-    def put(self, key: str, value: str) -> None:
+    def put(self, key: str, value: Any) -> None:
         with self.lock:
             self.data[key] = value
             self.data.move_to_end(key)
@@ -130,6 +130,7 @@ class Router:
         self.quality_offset = quality_offset
         self.require_credentials = require_credentials
         self._tool_calls = _LRU(10_000)
+        self._extra_content = _LRU(10_000)
 
     # ── agent tool-loop continuity ──────────────────────────────────────────
     def remember_tool_calls(self, tool_calls: list[dict[str, Any]] | None, model_id: str) -> None:
@@ -137,6 +138,31 @@ class Router:
         for tc in tool_calls or []:
             if isinstance(tc, dict) and tc.get("id"):
                 self._tool_calls.put(str(tc["id"]), model_id)
+                if tc.get("extra_content"):
+                    self._extra_content.put(str(tc["id"]), tc["extra_content"])
+
+    def restore_extra_content(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Re-attach provider-opaque ``extra_content`` (Gemini 3 ``thought_signature``) to
+        assistant tool calls that a client dropped when echoing history back.
+
+        Returns ``messages`` itself when nothing needs restoring.
+        """
+        out: list[dict[str, Any]] | None = None
+        for i, m in enumerate(messages):
+            calls = m.get("tool_calls") if m.get("role") == "assistant" else None
+            if not isinstance(calls, list):
+                continue
+            fixed = []
+            for tc in calls:
+                saved = None
+                if isinstance(tc, dict) and tc.get("id") and not tc.get("extra_content"):
+                    saved = self._extra_content.get(str(tc["id"]))
+                fixed.append({**tc, "extra_content": saved} if saved else tc)
+            if any(a is not b for a, b in zip(fixed, calls, strict=True)):
+                if out is None:
+                    out = list(messages)
+                out[i] = {**m, "tool_calls": fixed}
+        return out if out is not None else messages
 
     def _tool_loop_model(self, messages: list[dict[str, Any]]) -> str | None:
         for m in reversed(messages):
