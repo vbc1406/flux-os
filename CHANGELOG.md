@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+- README no longer says tool calls work "across every provider". It now states what the mocked tests cover and that no provider has been checked live.
+- Added `tests/test_live_astra.py` (function call, streaming function call, tool loop against the real API). They skip without `OPENAI_API_KEY` and have not been run. OpenAI's model page lists Chat Completions and function calling for Astra, while a third-party relay doc says Chat Completions rejects `tools` for it. Until the live tests pass, `gpt-6-astra` stays `tools: false`. Its `function_calling` rating (0.93) is the model's general ability and has no effect on routing while tools are excluded.
+
 ### Fixed
 - `gpt-6-astra` is no longer marked `tools: true`. OpenAI requires the Responses API for
   GPT-6 Astra tool calling, and flux-os only speaks Chat Completions to OpenAI, so tool

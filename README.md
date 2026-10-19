@@ -31,7 +31,7 @@ difficulty, tools, images, JSON mode, context size), sets a quality bar, and pic
 is **rerouted** to the next-best model, on a different provider first.
 
 - **Zero code changes.** Point your OpenAI or Anthropic client at flux-os and set `model="auto"`.
-- **Agents work.** Tool calls, streaming tool calls, and multi-turn tool loops work across every provider, whichever API format your framework speaks.
+- **Agent tool calls.** Tool calls, streaming tool calls, and multi-turn tool loops are covered by tests against mocked OpenAI-compatible and Anthropic upstreams, plus a Gemini tool-loop test. They have not been checked against each provider's live API, and GPT-6 Astra is excluded from tool requests (see Known limits).
 - **Three API formats in, any provider out.** Chat Completions, the Responses API and Anthropic Messages, translated to OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, OpenRouter or Ollama. Point another OpenAI-compatible server at flux-os by setting `OPENAI_BASE_URL` (or `OLLAMA_BASE_URL` for an Ollama-compatible one) before starting `flux-os serve`.
 - **Fast.** Pure-Python heuristics, no LLM in the decision path, well under 1 ms per decision.
 
@@ -94,8 +94,11 @@ print(resp.choices[0].message.content, resp.flux["model"])
 ## Works with
 
 Each row below is exercised by the test suite or was run end to end against a live
-flux-os server. Provider responses were faked; the HTTP, SSE, tool calling, format
-translation and routing are the real code paths.
+flux-os server. The upstream provider responses in these tests are mocked, so no row
+here has been checked against a live provider API. The HTTP, SSE, tool calling, format
+translation and routing are the real code paths. The mocks speak two wire formats: OpenAI
+Chat Completions (standing in for OpenAI, Gemini, Groq, Mistral, DeepSeek, OpenRouter and
+Ollama) and Anthropic Messages. Only Gemini has its own tool-loop test.
 
 | Client | Setup | Verified |
 |---|---|---|
@@ -253,6 +256,7 @@ is a small LRU cache of tool-call ids (for agent loop continuity) and recent Res
 (for `previous_response_id`).
 
 Known limits:
+- GPT-6 Astra is marked as not tool-capable. Whether it accepts `tools` on Chat Completions has not been confirmed against the live API (`tests/test_live_astra.py` is written but unrun), so tool requests skip it.
 - Reasoning models (gpt-oss, o-series, Gemini thinking) spend `max_tokens` on hidden reasoning. With a
   small limit (say 50) they can return nothing. flux-os treats an empty reply with
   `finish_reason: length` as a failure and reroutes (non-streaming only); if every candidate does it,
