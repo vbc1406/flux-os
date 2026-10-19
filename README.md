@@ -41,10 +41,10 @@ flux-os route --all "Prove that there are infinitely many primes"
 ```
 
 ```text
-model:       gpt-5.6-luna  (openai)
+model:       gpt-6-luna  (openai)
 task:        reasoning   complexity 0.55   quality bar 0.84
-est. cost:   $0.001203
-reroute to:  gemini-3.1-flash-lite, gemini-3-flash-preview, gemini-3.8-flash
+est. cost:   $0.000501
+reroute to:  gpt-5.6-luna, gemini-3.1-flash-lite, gemini-3.5-flash-lite
 ```
 
 Then set keys for the providers you use (any subset) and start the proxy:
