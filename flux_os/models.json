@@ -995,7 +995,7 @@
       "output_cost": 50.0,
       "context_window": 1050000,
       "max_output_tokens": 128000,
-      "tools": true,
+      "tools": false,
       "vision": true,
       "json_mode": true,
       "latency_ms": 4500,

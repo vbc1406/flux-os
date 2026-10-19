@@ -173,3 +173,25 @@ def test_routing_is_fast(router: Router) -> None:
     for _ in range(200):
         router.route(msgs(HARD))
     assert (time.perf_counter() - start) / 200 < 0.005
+
+
+ASTRA = "gpt-6-astra"
+PROOF = "Prove that there are infinitely many primes"
+
+
+def test_astra_never_routed_tool_requests(router: Router, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Astra tool calling needs the Responses API, which the adapter doesn't speak yet.
+    d = router.route(msgs(PROOF), tools=TOOLS)
+    assert ASTRA not in [m.id for m in d.candidates]
+
+    for key in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY"):
+        monkeypatch.delenv(key)
+    only_openai = Router(Catalog.load())
+    d = only_openai.route(msgs(PROOF), tools=TOOLS)
+    assert ASTRA not in [m.id for m in d.candidates]
+    assert d.model.provider == "openai"
+
+
+def test_astra_still_a_candidate_without_tools(router: Router) -> None:
+    d = router.route(msgs(PROOF))
+    assert ASTRA in [m.id for m in d.candidates]
