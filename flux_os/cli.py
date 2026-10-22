@@ -60,7 +60,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-    uvicorn.run(create_app(flux), host=host, port=port, log_level=args.log_level)
+    local_only = host in ("127.0.0.1", "localhost", "::1") and not os.environ.get("FLUX_OS_API_KEY")
+    uvicorn.run(create_app(flux, local_only=local_only), host=host, port=port, log_level=args.log_level)
     return 0
 
 

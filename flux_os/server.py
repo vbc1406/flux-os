@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ._version import __version__
 from .classifier import classify
-from .client import FluxOS, RouteInfo, UpstreamError, attempts_header
+from .client import FluxOS, RouteInfo, UpstreamError, attempts_header, sanitize_reason
 from .providers import EMPTY_REPLY_MESSAGE, ProviderError
 from .router import MODES, RoutingError, parse_directive
 from .translate import (
@@ -44,16 +44,21 @@ from .validate import validate_anthropic_body, validate_chat_request, validate_r
 DIRECTIVES = ("auto", "flux-cheap", "flux-fast")
 
 
+def _header_safe(value: str) -> str:
+    """Model ids can echo a client-supplied pass-through name: keep response headers printable ASCII."""
+    return "".join(c if 32 <= ord(c) < 127 else "?" for c in value)
+
+
 def _route_headers(info: RouteInfo) -> dict[str, str]:
     a = info.decision.analysis
     return {
-        "x-flux-model": info.model.id,
+        "x-flux-model": _header_safe(info.model.id),
         "x-flux-provider": info.model.provider,
         "x-flux-rerouted": "true" if info.rerouted else "false",
         "x-flux-mode": "pinned" if info.decision.pinned else info.decision.mode,
         "x-flux-task": a.task,
         "x-flux-complexity": f"{a.complexity:.2f}",
-        "x-flux-attempts": attempts_header(info.attempts),
+        "x-flux-attempts": _header_safe(attempts_header(info.attempts)),
     }
 
 
@@ -104,7 +109,7 @@ def _malformed(exc: Exception) -> RoutingError:
 
 
 def _log_upstream_failure(context: str, detail: str) -> None:
-    print(f"flux-os: {context} failed: {detail}", file=sys.stderr)
+    print(f"flux-os: {context} failed: {sanitize_reason(detail, 400)}", file=sys.stderr)
 
 
 def _upstream_message(debug: bool, detail: str, exc: Exception | None = None) -> str:
@@ -153,7 +158,23 @@ def _assistant_message(resp: dict[str, Any]) -> dict[str, Any]:
     return msg
 
 
-def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAPI:
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _hostname(netloc: str) -> str:
+    """Host part of a Host header or Origin netloc, without port or IPv6 brackets."""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        return netloc[1 : netloc.find("]")] if "]" in netloc else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def create_app(
+    flux: FluxOS | None = None, api_key: str | None = None, *, local_only: bool = False
+) -> FastAPI:
+    """``local_only``: the server is reachable only on loopback and has no API key (the zero-config
+    ``flux-os serve``). Web pages the user visits can still reach it, so requests are refused unless
+    their Host and Origin are loopback names (or listed in FLUX_OS_ALLOWED_HOSTS)."""
     flux = flux or FluxOS()
     api_key = api_key if api_key is not None else os.environ.get("FLUX_OS_API_KEY") or None
     max_body_bytes = int(os.environ.get("FLUX_OS_MAX_BODY_BYTES", "10485760"))
@@ -194,6 +215,24 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
                     return _openai_error(413, f"request body exceeds {max_body_bytes} bytes")
                 chunks.append(chunk)
             request._body = b"".join(chunks)
+        return await call_next(request)
+
+    allowed_hosts = _LOOPBACK_HOSTS | {
+        h.strip().lower() for h in os.environ.get("FLUX_OS_ALLOWED_HOSTS", "").split(",") if h.strip()
+    }
+
+    @app.middleware("http")
+    async def local_guard(request: Request, call_next: Any) -> Response:
+        # Blocks CSRF (a page POSTing text/plain JSON to localhost: no preflight, so the browser sends
+        # it) and DNS rebinding (a page whose own hostname resolves to 127.0.0.1). Only active without a key.
+        if local_only and not api_key:
+            origin = request.headers.get("origin")
+            if _hostname(request.headers.get("host", "")) not in allowed_hosts or (
+                origin is not None and _hostname(origin.split("://", 1)[-1]) not in allowed_hosts
+            ):
+                return _openai_error(
+                    403, "request refused: unexpected Host or Origin for a local flux-os server"
+                )
         return await call_next(request)
 
     @app.middleware("http")

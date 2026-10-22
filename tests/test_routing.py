@@ -233,3 +233,27 @@ def test_quality_tolerance_env_and_default(monkeypatch: pytest.MonkeyPatch, keys
     assert Router(Catalog.load()).quality_tolerance == 0.0
     with pytest.raises(ValueError):
         Router(Catalog.load(), quality_tolerance=-0.1)
+
+
+def test_routing_time_is_bounded_for_huge_prompts() -> None:
+    # ~20 regexes used to scan the whole prompt: ~0.5 ms per KB, so a body at the 10 MiB limit
+    # blocked the event loop for seconds. Pattern matching now reads only the head and tail.
+    import time
+
+    from flux_os.classifier import classify
+
+    for filler in ("lorem ipsum dolor sit amet. ", "def f(x): return {x:[1,2]};\n", " "):
+        text = "Summarize the following document.\n" + filler * (3_000_000 // len(filler))
+        start = time.perf_counter()
+        a = classify([{"role": "user", "content": text}])
+        assert time.perf_counter() - start < 0.5, repr(filler)
+        assert a.input_tokens > 100_000
+
+
+def test_instruction_at_either_end_of_a_long_prompt_is_still_seen() -> None:
+    from flux_os.classifier import classify
+
+    filler = "lorem ipsum dolor sit amet. " * 20_000
+    head = classify([{"role": "user", "content": "Translate the following into French.\n" + filler}])
+    tail = classify([{"role": "user", "content": filler + "\nTranslate the above into French."}])
+    assert head.task == tail.task == "translation"

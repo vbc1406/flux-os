@@ -183,12 +183,26 @@ def _has_image(content: Any) -> bool:
     )
 
 
+# Pattern matching reads at most this much from each end of a prompt. The task is stated at the
+# start or end of a request, and scanning megabytes with ~20 regexes would stall the event loop.
+_SCAN_HEAD = 12_000
+_SCAN_TAIL = 12_000
+_SYMBOL_SAMPLE = 20_000
+
+
+def _bounded(text: str) -> str:
+    if len(text) <= _SCAN_HEAD + _SCAN_TAIL:
+        return text
+    return text[:_SCAN_HEAD] + "\n" + text[-_SCAN_TAIL:]
+
+
 def estimate_tokens(text: str) -> int:
     """~4 chars/token for prose, ~3 for code-heavy text. No tokenizer needed."""
     if not text:
         return 0
-    symbols = sum(1 for c in text if c in "{}[]();=<>")
-    per = 3.0 if symbols / max(len(text), 1) > 0.04 else 4.0
+    sample = text[:_SYMBOL_SAMPLE]
+    symbols = sum(sample.count(c) for c in "{}[]();=<>")
+    per = 3.0 if symbols / max(len(sample), 1) > 0.04 else 4.0
     return max(1, int(len(text) / per))
 
 
@@ -258,9 +272,11 @@ def classify(
             break
     if not user_text and messages:
         user_text = content_text(messages[-1].get("content"))
-    system_text = " ".join(
-        content_text(m.get("content")) for m in messages if m.get("role") in ("system", "developer")
+    system_text = _bounded(
+        " ".join(content_text(m.get("content")) for m in messages if m.get("role") in ("system", "developer"))
     )
+    words = len(user_text.split())
+    user_text = _bounded(user_text)
 
     task, rule = _detect_task(user_text, input_tokens)
     if task in ("conversation", "general") and system_text:
@@ -270,7 +286,6 @@ def classify(
     signals = [f"task:{rule}"]
 
     score = BASE_COMPLEXITY[task]
-    words = len(user_text.split())
 
     def bump(amount: float, name: str) -> None:
         nonlocal score
@@ -293,7 +308,7 @@ def classify(
         bump(0.08, "math")
     if user_text.count("?") >= 3:
         bump(0.05, "multi_question")
-    numbered = len(re.findall(r"^\s*(\d+[.)]|[-*•])\s", user_text, re.M))
+    numbered = len(re.findall(r"^[ \t]*(\d+[.)]|[-*•])[ \t]", user_text, re.M))
     if numbered >= 4:
         bump(0.06, "multi_part")
     if _BRIEF.search(user_text):

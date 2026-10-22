@@ -145,6 +145,19 @@ def builtin_models() -> list[Model]:
 class Catalog:
     providers: dict[str, Provider]
     models: list[Model]
+    disabled: frozenset[str] = frozenset()  # FLUX_OS_DISABLE entries
+    allow: frozenset[str] = frozenset()  # FLUX_OS_ONLY_MODELS entries
+
+    def pin_blocked(self, model: Model, in_catalog: bool) -> str | None:
+        """Why the operator's FLUX_OS_DISABLE / FLUX_OS_ONLY_MODELS forbid pinning ``model``, if they do."""
+        if in_catalog:
+            return None if model.enabled else "it is switched off by FLUX_OS_DISABLE or FLUX_OS_ONLY_MODELS"
+        provider = f"provider:{model.provider}"
+        if model.id in self.disabled or provider in self.disabled:
+            return "it is switched off by FLUX_OS_DISABLE"
+        if self.allow and model.id not in self.allow and provider not in self.allow:
+            return "it is not in FLUX_OS_ONLY_MODELS"
+        return None
 
     @classmethod
     def load(cls, api_keys: dict[str, str] | None = None) -> Catalog:
@@ -166,7 +179,7 @@ class Catalog:
             if name in providers:
                 providers[name].api_key = key
 
-        return cls(providers=providers, models=models)
+        return cls(providers=providers, models=models, disabled=frozenset(disabled), allow=frozenset(allow))
 
     def get(self, model_id: str) -> Model | None:
         for m in self.models:

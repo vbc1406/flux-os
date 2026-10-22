@@ -86,7 +86,7 @@ print(resp.choices[0].message.content, resp.flux["model"])
 | pip / CLI | `pip install "git+https://github.com/vbc1406/flux-os"` then `flux-os serve` |
 | uv, no install | `uvx --from git+https://github.com/vbc1406/flux-os flux-os serve` |
 | Docker | `docker build -t flux-os . && docker run -p 127.0.0.1:8000:8000 -e OPENAI_API_KEY -e FLUX_OS_API_KEY flux-os` |
-| Docker Compose | `docker compose up -d` (reads keys from your environment) |
+| Docker Compose | `FLUX_OS_API_KEY=$(openssl rand -hex 24) docker compose up -d` (reads provider keys from your environment; `FLUX_OS_API_KEY` is required) |
 | Python module | `python -m flux_os serve` |
 | Python library | `from flux_os import FluxOS, route`: sync, async and streaming |
 | Decision only | `flux_os.route(messages)` or `POST /v1/route`: flux-os picks, you call |
@@ -187,6 +187,7 @@ Everything works with nothing but provider keys. For more control:
 |---|---|---|
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` (or `GEMINI_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`, `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY` | | Providers to route across. Unset providers are skipped. |
 | `FLUX_OS_API_KEY` | none | Clients must send it as `Authorization: Bearer ...` or `x-api-key`. **Set it whenever the server is reachable by others.** |
+| `FLUX_OS_ALLOWED_HOSTS` | none | Extra `Host` / `Origin` names accepted when flux-os runs on loopback **without** `FLUX_OS_API_KEY` (for example a local reverse proxy name). Loopback names are always accepted. |
 | `FLUX_OS_HOST` / `FLUX_OS_PORT` | `127.0.0.1` / `8000` | Bind address (`PORT` is honoured too) |
 | `FLUX_OS_DEFAULT_MODE` | `auto` | `auto`, `cheap` or `fast` |
 | `FLUX_OS_ROUTE_ALL` | off | Treat every model name as `auto`, for tools that hard-code a model (Claude Code) |
@@ -231,6 +232,15 @@ off with `FLUX_OS_DISABLE=mistral-large-3` (or a whole provider with `FLUX_OS_DI
   non-loopback host without it (override with `FLUX_OS_ALLOW_UNAUTHENTICATED=1` if you understand
   the risk).
 - **Bind to localhost** (`FLUX_OS_HOST=127.0.0.1`, the default) unless you have a reason not to.
+  Without a key on localhost, flux-os still refuses requests whose `Host` or `Origin` is not a loopback
+  name, so a web page you visit cannot spend your credits through your browser (CSRF / DNS rebinding).
+  Set `FLUX_OS_API_KEY` if other local software or users should not be able to use your keys either.
+- **`FLUX_OS_DISABLE` and `FLUX_OS_ONLY_MODELS` also apply to pinned models.** A client cannot pin a model or
+  provider you switched off. Pass-through names (`provider/model`, unknown `gpt-*` / `claude-*` names) are
+  checked against the same lists. `ollama/<model>` reaches whatever `OLLAMA_BASE_URL` points to.
+- **Logs are not telemetry, but they can contain provider error text.** Prompts, responses and keys are never
+  logged. Upstream error messages are, with key-shaped strings and your configured keys masked, so treat
+  the server's stderr as sensitive anyway.
 - **Put a TLS reverse proxy in front** (nginx, Caddy, your cloud load balancer, ...) before exposing
   flux-os beyond your own machine. flux-os itself speaks plain HTTP.
 - flux-os has **no rate limiting, budgets or spend caps**. Set spend limits at each provider
