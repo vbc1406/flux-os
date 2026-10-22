@@ -11,6 +11,15 @@
 - Removed `o4-mini`, which OpenAI shuts down on 2026-10-23.
 - Claude 4.7 and later (every 4.7+/5.x entry in the catalog, and unlisted `claude-*` names that match) accept only default sampling values, so a client's `temperature=0.2` or `top_p` made Anthropic answer 400, which is not rerouted. `drop_params` now applies on the Anthropic path too (it only did for OpenAI-shaped providers), and those models drop `temperature` / `top_p`. Claude Sonnet 4.6 and Haiku 4.5 still receive them.
 - `/openapi.json` is no longer served; it was reachable without the API key.
+
+### Security (pre-launch review)
+- **Classifier ReDoS**: the multi-part-list regex (`^\s*...` with `re.M`) was quadratic on runs of newlines or whitespace, so one 60 KB request stalled the server for 10 to 16 seconds. It is linear now, and pattern matching reads at most 12k characters from each end of a prompt (a 1 MB prompt routed in 1.3 s before, about 35 ms now).
+- **Pinned models bypassed `FLUX_OS_DISABLE` / `FLUX_OS_ONLY_MODELS`.** Sending `model: "gpt-5"` or `"claude-opus-4-7"` (or any pass-through name) reached the provider even when the operator had switched it off. Pins are now checked against the same lists.
+- **Browser CSRF and DNS rebinding against a keyless loopback server.** A web page could POST `text/plain` JSON to `localhost:8000` (no CORS preflight) and spend the user's credits. Without `FLUX_OS_API_KEY`, `flux-os serve` on loopback now refuses requests whose `Host` or `Origin` is not a loopback name (extend with `FLUX_OS_ALLOWED_HOSTS`).
+- A `model` containing CR/LF or other control characters is rejected with 400 (it aborted the response after the upstream call was made); `x-flux-*` header values are printable ASCII.
+- `service_tier`, `store`, `plugins`, `models`, `route`, `provider`, `transforms` and `base_url` are no longer forwarded from clients, and `n` above 8 is rejected (they raise the operator's bill or change retention).
+- Upstream error text in the server log is masked (key-shaped strings and the configured key values).
+- `docker compose up` now fails fast with a clear message when `FLUX_OS_API_KEY` is unset, instead of restart-looping. Dependabot also watches the Docker base image; `.dockerignore` excludes `.env.*`, keys, tests and examples.
 - `gpt-6-astra` is no longer marked `tools: true`. OpenAI requires the Responses API for
   GPT-6 Astra tool calling, and flux-os only speaks Chat Completions to OpenAI, so tool
   requests routed to Astra would have failed upstream. Requests that include tools now skip

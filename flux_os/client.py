@@ -51,9 +51,15 @@ _SECRET = re.compile(
 )
 
 
+def _configured_secrets() -> list[str]:
+    return [v for k, v in os.environ.items() if k.endswith("_KEY") and len(v) >= 8]
+
+
 def sanitize_reason(text: str, limit: int = 120) -> str:
-    """One short line, with anything key-shaped masked, safe to log."""
+    """One short line, with anything key-shaped (or equal to a configured key) masked, safe to log."""
     one_line = " ".join(str(text).split())
+    for secret in _configured_secrets():
+        one_line = one_line.replace(secret, "***")
     return _SECRET.sub("***", one_line)[:limit]
 
 

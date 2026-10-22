@@ -320,6 +320,9 @@ class Router:
                 f"unknown model '{name}'. Use 'auto' (or flux-cheap / flux-fast), "
                 "a catalog id (see `flux-os models`), or 'provider/model' such as 'ollama/llama3.2'"
             )
+        blocked = self.catalog.pin_blocked(model, in_catalog=self.catalog.get(name) is not None)
+        if blocked:
+            raise RoutingError(f"model '{name}' is not available: {blocked}")
         if self.require_credentials and not self.catalog.providers[model.provider].configured:
             raise RoutingError(
                 f"model '{name}' needs provider '{model.provider}', which has no API key configured"
