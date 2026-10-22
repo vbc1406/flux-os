@@ -19,7 +19,7 @@ as a proxy or a Python library. No dashboard, no database, no setup.
 "Write a Python function that parses dates"   → gpt-oss-20b      (groq)     ~$0.0004
 "Implement a lock-free concurrent hash map in
  Rust, thread-safe, no global locks, and
- handle all edge cases"                       → gpt-oss-120b     (groq)     ~$0.0007
+ handle all edge cases"                       → gpt-6-luna       (openai)   ~$0.0006
 ```
 
 (Decisions with `GROQ_API_KEY`, `OPENAI_API_KEY` and `MISTRAL_API_KEY` set. Which model wins depends on the
@@ -45,10 +45,10 @@ flux-os route --all "Prove that there are infinitely many primes"
 ```
 
 ```text
-model:       gpt-oss-120b  (groq)
+model:       gpt-6-luna  (openai)
 task:        reasoning   complexity 0.55   quality bar 0.84
-est. cost:   $0.000602
-reroute to:  gpt-5.6-luna, gemini-3.1-flash-lite, gemini-3-flash-preview
+est. cost:   $0.000501
+reroute to:  gpt-oss-120b, gpt-5.6-luna, gemini-3.1-flash-lite
 ```
 
 Then set keys for the providers you use (any subset) and start the proxy:
@@ -130,7 +130,7 @@ request ─► classify ─► filter ─► quality bar ─► rank ─► call
 
 1. **Classify.** Task type (`code_generation`, `code_review`, `reasoning`, `analysis`, `creative_writing`, `summarization`, `extraction`, `translation`, `classification`, `simple_qa`, `conversation`, ...) and a 0–1 complexity score from signals like constraints, math, domain difficulty, multi-part questions, and prompt length.
 2. **Filter.** Only models whose provider has a key, and that support what the request needs: tools, images, JSON mode, and a large enough context window.
-3. **Set a bar.** Harder requests need higher-rated models. Tool-calling agent steps never go below 0.80.
+3. **Set a bar.** Harder requests need higher-rated models. Tool-calling agent steps use a bar of at least 0.80 (and are scored on the average of the task and function-calling ratings). The `FLUX_OS_QUALITY_TOLERANCE` band (default 0.02) applies on top.
 4. **Rank.** Models that clear the bar are sorted by estimated cost for this request, and the rest follow by quality. That ordered list is also the reroute order.
 5. **Call, and reroute on failure.** Rate limits, 5xx errors, timeouts, auth errors, unknown models and capability errors move the request to the next candidate, trying other providers before the one that failed. Plain bad requests (a 400) are returned as they are, and streams are only rerouted before the first token.
 
@@ -213,7 +213,7 @@ instead. The catalog decides whether a coding turn needs a frontier model.
 
 ## Model catalog
 
-27 current models from OpenAI, Anthropic, Google, Groq and Mistral ship in
+31 current models from OpenAI, Anthropic, Google, Groq and Mistral ship in
 [`flux_os/models.json`](flux_os/models.json), with prices (USD per 1M tokens), context windows,
 capabilities and per-task quality ratings. Run `flux-os models --all` to list them. The quality
 ratings are editorial estimates built from public benchmarks, not measurements of your
@@ -283,7 +283,7 @@ above, and quality ratings backed by data. See [CONTRIBUTING.md](CONTRIBUTING.md
 flux-os is an independent, unofficial project and is not affiliated with, endorsed by, or
 sponsored by OpenAI, Anthropic, Google, Groq, Mistral, DeepSeek, OpenRouter, Ollama, LangChain or
 Vercel. Their names are used only to describe API and provider compatibility. Prices and quality
-ratings in this repository are estimates as of 2026-09-27 and must be checked against each
+ratings in this repository are estimates as of 2026-10-22 and must be checked against each
 provider's current, official pricing before you rely on them.
 
 ## License
