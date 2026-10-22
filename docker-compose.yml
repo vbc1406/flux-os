@@ -12,8 +12,9 @@ services:
       - MISTRAL_API_KEY
       - DEEPSEEK_API_KEY
       - OPENROUTER_API_KEY
-      # Clients must send this as their API key. Strongly recommended off-localhost.
-      - FLUX_OS_API_KEY
+      # Required: the container listens on 0.0.0.0 inside, and flux-os refuses to start there without a key.
+      # Clients send it as their API key. Example: FLUX_OS_API_KEY=$(openssl rand -hex 24) docker compose up -d
+      - FLUX_OS_API_KEY=${FLUX_OS_API_KEY:?set FLUX_OS_API_KEY to a secret that clients will send as their API key}
       - FLUX_OS_ROUTE_ALL
       - FLUX_OS_DEFAULT_MODE
     restart: unless-stopped

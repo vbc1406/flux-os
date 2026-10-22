@@ -18,6 +18,10 @@ def _int(v: Any) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+# Each extra choice is billed as a full completion on the operator's key.
+MAX_N = 8
+
+
 def _fail(msg: str) -> RoutingError:
     return RoutingError(msg)
 
@@ -26,6 +30,8 @@ def _check_scalars(body: dict[str, Any], *, int_keys: tuple[str, ...], num_keys:
     model = body.get("model")
     if model is not None and not isinstance(model, str):
         raise _fail("'model' must be a string")
+    if model is not None and (len(model) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in model)):
+        raise _fail("'model' is not a valid model name")
     for key in int_keys:
         v = body.get(key)
         if v is not None and (not _int(v) or v < 1):
@@ -64,6 +70,9 @@ def validate_chat_request(req: dict[str, Any]) -> None:
         int_keys=("max_tokens", "max_completion_tokens", "n"),
         num_keys=("temperature", "top_p", "presence_penalty", "frequency_penalty"),
     )
+    n = req.get("n")
+    if _int(n) and n > MAX_N:
+        raise _fail(f"'n' must be at most {MAX_N}")
     seed = req.get("seed")
     if seed is not None and not _int(seed):
         raise _fail("'seed' must be an integer")

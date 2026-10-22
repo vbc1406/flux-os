@@ -308,7 +308,7 @@ def classify(
         bump(0.08, "math")
     if user_text.count("?") >= 3:
         bump(0.05, "multi_question")
-    numbered = len(re.findall(r"^\s*(\d+[.)]|[-*•])\s", user_text, re.M))
+    numbered = len(re.findall(r"^[ \t]*(\d+[.)]|[-*•])[ \t]", user_text, re.M))
     if numbered >= 4:
         bump(0.06, "multi_part")
     if _BRIEF.search(user_text):

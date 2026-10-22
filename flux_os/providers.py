@@ -43,6 +43,9 @@ _PROVIDER_EXTRA = {
     "ollama": {"stream_options"},
 }
 _INTERNAL = {"flux_mode", "flux_reroute"}
+# Forwarded verbatim to openai / openrouter otherwise: priority tier (2x price), OpenRouter fallback
+# lists and plugins, provider-side storage. The operator decides these, not the client.
+_NEVER_FORWARD = {"service_tier", "plugins", "models", "route", "provider", "transforms", "store", "base_url"}
 
 
 class ProviderError(Exception):
@@ -147,7 +150,7 @@ class Upstream:
     # ── request building ────────────────────────────────────────────────────
     def _openai_body(self, req: dict[str, Any], model: Model, provider: Provider) -> dict[str, Any]:
         extra = _PROVIDER_EXTRA.get(provider.name, {"reasoning_effort", "stream_options", "user"})
-        body = {k: v for k, v in req.items() if k not in _INTERNAL and v is not None}
+        body = {k: v for k, v in req.items() if k not in _INTERNAL | _NEVER_FORWARD and v is not None}
         if extra is not None:
             body = {k: v for k, v in body.items() if k in _PORTABLE or k in extra}
             if "max_completion_tokens" in req and "max_tokens" not in body:
