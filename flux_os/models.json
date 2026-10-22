@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-09-27",
+  "updated": "2026-10-22",
   "prices": "USD per 1M tokens",
   "models": [
     {
@@ -33,6 +33,35 @@
       }
     },
     {
+      "id": "claude-haiku-5-5",
+      "provider": "anthropic",
+      "name": "Claude Haiku 5.5",
+      "input_cost": 0.1,
+      "output_cost": 0.5,
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tools": true,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 600,
+      "quality": {
+        "simple_qa": 0.85,
+        "conversation": 0.86,
+        "translation": 0.84,
+        "classification": 0.86,
+        "extraction": 0.84,
+        "summarization": 0.83,
+        "code_generation": 0.87,
+        "code_review": 0.85,
+        "creative_writing": 0.78,
+        "analysis": 0.82,
+        "reasoning": 0.78,
+        "function_calling": 0.84,
+        "long_document": 0.8,
+        "general": 0.82
+      }
+    },
+    {
       "id": "claude-sonnet-5",
       "provider": "anthropic",
       "name": "Claude Sonnet 5",
@@ -44,6 +73,35 @@
       "vision": true,
       "json_mode": true,
       "latency_ms": 1700,
+      "quality": {
+        "simple_qa": 0.89,
+        "conversation": 0.9,
+        "translation": 0.87,
+        "classification": 0.89,
+        "extraction": 0.88,
+        "summarization": 0.89,
+        "code_generation": 0.92,
+        "code_review": 0.85,
+        "creative_writing": 0.9,
+        "analysis": 0.9,
+        "reasoning": 0.89,
+        "function_calling": 0.88,
+        "long_document": 0.88,
+        "general": 0.89
+      }
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "provider": "anthropic",
+      "name": "Claude Sonnet 5.5",
+      "input_cost": 2.0,
+      "output_cost": 10.0,
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tools": true,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 1600,
       "quality": {
         "simple_qa": 0.89,
         "conversation": 0.9,
@@ -149,6 +207,35 @@
       }
     },
     {
+      "id": "claude-opus-5-5",
+      "provider": "anthropic",
+      "name": "Claude Opus 5.5",
+      "input_cost": 4.0,
+      "output_cost": 20.0,
+      "context_window": 1000000,
+      "max_output_tokens": 128000,
+      "tools": true,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 3000,
+      "quality": {
+        "simple_qa": 0.93,
+        "conversation": 0.94,
+        "translation": 0.91,
+        "classification": 0.93,
+        "extraction": 0.92,
+        "summarization": 0.93,
+        "code_generation": 0.97,
+        "code_review": 0.93,
+        "creative_writing": 0.95,
+        "analysis": 0.9,
+        "reasoning": 0.95,
+        "function_calling": 0.93,
+        "long_document": 0.92,
+        "general": 0.94
+      }
+    },
+    {
       "id": "claude-fable-5-1",
       "provider": "anthropic",
       "name": "Claude Fable 5.1",
@@ -159,7 +246,7 @@
       "tools": true,
       "vision": true,
       "json_mode": true,
-      "latency_ms": 650,
+      "latency_ms": 4500,
       "quality": {
         "simple_qa": 0.93,
         "conversation": 0.94,
@@ -539,6 +626,43 @@
       }
     },
     {
+      "id": "gpt-6-luna",
+      "provider": "openai",
+      "name": "GPT-6 Luna",
+      "input_cost": 0.1,
+      "output_cost": 0.5,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "tools": false,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 500,
+      "drop_params": [
+        "temperature",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
+        "logprobs",
+        "top_logprobs"
+      ],
+      "quality": {
+        "simple_qa": 0.88,
+        "conversation": 0.87,
+        "translation": 0.83,
+        "classification": 0.88,
+        "extraction": 0.85,
+        "summarization": 0.84,
+        "code_generation": 0.86,
+        "code_review": 0.76,
+        "creative_writing": 0.81,
+        "analysis": 0.86,
+        "reasoning": 0.88,
+        "function_calling": 0.85,
+        "long_document": 0.42,
+        "general": 0.85
+      }
+    },
+    {
       "id": "gpt-5-mini",
       "provider": "openai",
       "name": "GPT-5 Mini",
@@ -573,43 +697,6 @@
         "function_calling": 0.84,
         "long_document": 0.8,
         "general": 0.83
-      }
-    },
-    {
-      "id": "o4-mini",
-      "provider": "openai",
-      "name": "o4-mini",
-      "input_cost": 1.1,
-      "output_cost": 4.4,
-      "context_window": 200000,
-      "max_output_tokens": 100000,
-      "tools": true,
-      "vision": true,
-      "json_mode": true,
-      "latency_ms": 8000,
-      "drop_params": [
-        "temperature",
-        "top_p",
-        "presence_penalty",
-        "frequency_penalty",
-        "logprobs",
-        "top_logprobs"
-      ],
-      "quality": {
-        "simple_qa": 0.86,
-        "conversation": 0.84,
-        "translation": 0.82,
-        "classification": 0.86,
-        "extraction": 0.84,
-        "summarization": 0.82,
-        "code_generation": 0.94,
-        "code_review": 0.86,
-        "creative_writing": 0.78,
-        "analysis": 0.88,
-        "reasoning": 0.9,
-        "function_calling": 0.84,
-        "long_document": 0.8,
-        "general": 0.86
       }
     },
     {
@@ -787,6 +874,43 @@
         "function_calling": 0.92,
         "long_document": 0.82,
         "general": 0.92
+      }
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "provider": "openai",
+      "name": "GPT-6.1 Sol",
+      "input_cost": 2.0,
+      "output_cost": 10.0,
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "tools": false,
+      "vision": true,
+      "json_mode": true,
+      "latency_ms": 3500,
+      "drop_params": [
+        "temperature",
+        "top_p",
+        "presence_penalty",
+        "frequency_penalty",
+        "logprobs",
+        "top_logprobs"
+      ],
+      "quality": {
+        "simple_qa": 0.92,
+        "conversation": 0.91,
+        "translation": 0.88,
+        "classification": 0.92,
+        "extraction": 0.89,
+        "summarization": 0.89,
+        "code_generation": 0.92,
+        "code_review": 0.85,
+        "creative_writing": 0.84,
+        "analysis": 0.93,
+        "reasoning": 0.95,
+        "function_calling": 0.91,
+        "long_document": 0.77,
+        "general": 0.91
       }
     },
     {
