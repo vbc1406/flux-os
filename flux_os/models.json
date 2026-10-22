@@ -59,7 +59,11 @@
         "function_calling": 0.84,
         "long_document": 0.8,
         "general": 0.82
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "claude-sonnet-5",
@@ -88,7 +92,11 @@
         "function_calling": 0.88,
         "long_document": 0.88,
         "general": 0.89
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "claude-sonnet-5-5",
@@ -117,7 +125,11 @@
         "function_calling": 0.88,
         "long_document": 0.88,
         "general": 0.89
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "claude-sonnet-4-6",
@@ -175,7 +187,11 @@
         "function_calling": 0.77,
         "long_document": 0.92,
         "general": 0.93
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "claude-opus-5",
@@ -204,7 +220,11 @@
         "function_calling": 0.93,
         "long_document": 0.92,
         "general": 0.94
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "claude-opus-5-5",
@@ -233,7 +253,11 @@
         "function_calling": 0.93,
         "long_document": 0.92,
         "general": 0.94
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "claude-fable-5-1",
@@ -262,7 +286,11 @@
         "function_calling": 0.92,
         "long_document": 0.92,
         "general": 0.94
-      }
+      },
+      "drop_params": [
+        "temperature",
+        "top_p"
+      ]
     },
     {
       "id": "gemini-3.1-flash-lite",

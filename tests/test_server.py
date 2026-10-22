@@ -313,3 +313,15 @@ async def test_responses_api_function_calls(oai: AsyncOpenAI, fake) -> None:
     stream = await oai.responses.create(model="auto", input="weather?", tools=tools, stream=True)
     done = [ev async for ev in stream if ev.type == "response.function_call_arguments.done"]
     assert json.loads(done[0].arguments) == {"city": "Paris"}
+
+
+async def test_no_unauthenticated_schema_endpoints() -> None:
+    import httpx
+
+    from flux_os import FluxOS
+    from flux_os.server import create_app
+
+    app = create_app(FluxOS(), api_key="secret")
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://f") as c:
+        for path in ("/openapi.json", "/docs", "/redoc"):
+            assert (await c.get(path)).status_code == 404, path
