@@ -44,3 +44,46 @@ def test_catalog_entries_are_well_formed() -> None:
 def test_retired_models_are_not_in_the_catalog() -> None:
     # OpenAI shuts o4-mini down on 2026-10-23 (https://developers.openai.com/api/docs/deprecations)
     assert Catalog.load().get("o4-mini") is None
+
+
+@pytest.mark.parametrize(
+    ("model", "kept"),
+    [
+        ("claude-sonnet-5", False),
+        ("claude-opus-4-7", False),
+        ("claude-haiku-5-5", False),
+        ("claude-fable-5-1", False),
+        ("claude-sonnet-4-6", True),
+        ("claude-haiku-4-5-20251001", True),
+    ],
+)
+async def test_sampling_params_follow_what_each_claude_model_accepts(
+    keys, fake, model: str, kept: bool
+) -> None:
+    # Claude 4.7+ answer 400 to a non-default temperature / top_p, which would fail a request that
+    # an OpenAI-style client sent with temperature=0.2
+    import httpx
+
+    from flux_os import FluxOS
+
+    flux = FluxOS(catalog=Catalog.load(), transport=httpx.MockTransport(fake.handler))
+    body = {"model": model, "messages": EASY, "temperature": 0.2, "max_tokens": 20}
+    await flux.dispatch(body)
+    sent = fake.calls[-1]["body"]
+    assert ("temperature" in sent) is kept, model
+
+
+@pytest.mark.parametrize(
+    ("name", "dropped"),
+    [
+        ("claude-opus-4-8", True),
+        ("claude-opus-5-5", True),
+        ("claude-sonnet-6-0", True),
+        ("claude-sonnet-4-6", False),
+        ("claude-opus-4-5-20251101", False),
+        ("claude-3-7-sonnet-20250219", False),
+    ],
+)
+def test_passthrough_claude_names_drop_sampling_only_when_required(name: str, dropped: bool) -> None:
+    m = Catalog.load().resolve_passthrough(name)
+    assert m is not None and bool(m.drop_params) is dropped, name

@@ -9,6 +9,8 @@
 ### Fixed
 - `flux-fast` (and `X-Flux-Mode: fast`) no longer sends every request to `claude-fable-5-1` when an Anthropic key is set. Its `latency_ms` was listed below Haiku's, so the most expensive model won every latency ranking, even for "hi". It is now listed as Anthropic's slowest model.
 - Removed `o4-mini`, which OpenAI shuts down on 2026-10-23.
+- Claude 4.7 and later (every 4.7+/5.x entry in the catalog, and unlisted `claude-*` names that match) accept only default sampling values, so a client's `temperature=0.2` or `top_p` made Anthropic answer 400, which is not rerouted. `drop_params` now applies on the Anthropic path too (it only did for OpenAI-shaped providers), and those models drop `temperature` / `top_p`. Claude Sonnet 4.6 and Haiku 4.5 still receive them.
+- `/openapi.json` is no longer served; it was reachable without the API key.
 - `gpt-6-astra` is no longer marked `tools: true`. OpenAI requires the Responses API for
   GPT-6 Astra tool calling, and flux-os only speaks Chat Completions to OpenAI, so tool
   requests routed to Astra would have failed upstream. Requests that include tools now skip
