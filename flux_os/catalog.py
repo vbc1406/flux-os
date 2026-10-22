@@ -9,9 +9,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from importlib import resources
 from typing import Any
+
+# Claude 4.7 and later (and every 5.x) reject non-default temperature / top_p / top_k.
+_CLAUDE_FIXED_SAMPLING = re.compile(
+    r"claude-(?:opus|sonnet|haiku|fable|mythos)-(?:4-(?:[7-9]|\d{2})|[5-9])(?:-|$)"
+)
 
 TASK_TYPES = (
     "simple_qa",
@@ -192,10 +198,10 @@ class Catalog:
         )
         for prefixes, prov in guesses:
             if lowered.startswith(prefixes):
-                drop = (
-                    ("temperature", "top_p")
-                    if prov == "openai" and lowered.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6"))
-                    else ()
+                openai_reasoning = prov == "openai" and lowered.startswith(
+                    ("o1", "o3", "o4", "gpt-5", "gpt-6")
                 )
+                claude_fixed_sampling = prov == "anthropic" and _CLAUDE_FIXED_SAMPLING.match(lowered)
+                drop = ("temperature", "top_p") if openai_reasoning or claude_fixed_sampling else ()
                 return Model(id=model, provider=prov, name=model, drop_params=drop)
         return None

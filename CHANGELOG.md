@@ -7,11 +7,23 @@
 - Added `tests/test_live_astra.py` (function call, streaming function call, tool loop against the real API). They skip without `OPENAI_API_KEY` and have not been run. OpenAI's model page lists Chat Completions and function calling for Astra, while a third-party relay doc says Chat Completions rejects `tools` for it. Until the live tests pass, `gpt-6-astra` stays `tools: false`. Its `function_calling` rating (0.93) is the model's general ability and has no effect on routing while tools are excluded.
 
 ### Fixed
+- `flux-fast` (and `X-Flux-Mode: fast`) no longer sends every request to `claude-fable-5-1` when an Anthropic key is set. Its `latency_ms` was listed below Haiku's, so the most expensive model won every latency ranking, even for "hi". It is now listed as Anthropic's slowest model.
+- Removed `o4-mini`, which OpenAI shuts down on 2026-10-23.
+- Claude 4.7 and later (every 4.7+/5.x entry in the catalog, and unlisted `claude-*` names that match) accept only default sampling values, so a client's `temperature=0.2` or `top_p` made Anthropic answer 400, which is not rerouted. `drop_params` now applies on the Anthropic path too (it only did for OpenAI-shaped providers), and those models drop `temperature` / `top_p`. Claude Sonnet 4.6 and Haiku 4.5 still receive them.
+- `/openapi.json` is no longer served; it was reachable without the API key.
 - `gpt-6-astra` is no longer marked `tools: true`. OpenAI requires the Responses API for
   GPT-6 Astra tool calling, and flux-os only speaks Chat Completions to OpenAI, so tool
   requests routed to Astra would have failed upstream. Requests that include tools now skip
   Astra; requests without tools can still use it. Pinning `model="gpt-6-astra"` with tools is
   still honoured as-is and will hit that upstream limit until a Responses adapter exists.
+
+### Added
+- Catalog refreshed against each provider's docs on 2026-10-22: `claude-haiku-5-5` ($0.10/$0.50), `claude-sonnet-5-5` ($2/$10), `claude-opus-5-5` ($4/$20), `gpt-6-luna` ($0.10/$0.50) and `gpt-6.1-sol` ($2/$10). The two GPT-6 entries are `tools: false` (Responses-only tool calling, like `gpt-6-astra`). **Their quality ratings are provisional**: each copies its predecessor's ratings (`gpt-6.1-sol` is `gpt-6-astra` minus 0.02) until there is benchmark data. `gpt-6-luna` is cheaper than `gpt-oss-120b`, so with OpenAI and Groq keys it now takes some traffic that went to Groq.
+- `tests/test_catalog_sanity.py`: easy prompts never land on the priciest model in any mode, and catalog entries are well formed.
+
+### Deprecation watch (still routable, remove when they shut down)
+- `gpt-5`, `gpt-5-mini`, `o3`: 2026-12-11. `gpt-4o`, `gpt-4o-mini`: 2027-01-14. `claude-haiku-4-5-20251001`: retirement "not sooner than" 2026-10-15.
+- `gemini-3.8-flash` list price doubles on 2027-01-01 ($0.75/$3.75 to $1.50/$7.50).
 
 ## 0.2.0
 Fixes from a routing evaluation (real providers, stub upstreams, 138 tests).

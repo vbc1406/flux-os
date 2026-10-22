@@ -165,7 +165,14 @@ def create_app(flux: FluxOS | None = None, api_key: str | None = None) -> FastAP
         yield
         await flux.aclose()
 
-    app = FastAPI(title="flux-os", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(
+        title="flux-os",
+        version=__version__,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+        lifespan=lifespan,
+    )
     app.state.flux = flux
 
     @app.middleware("http")

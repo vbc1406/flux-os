@@ -192,7 +192,10 @@ class Upstream:
 
     def _prepare(self, req: dict[str, Any], model: Model, provider: Provider) -> dict[str, Any]:
         if provider.style == "anthropic":
-            return chat_to_anthropic(req, model.upstream_id, model.max_output_tokens or 8192)
+            body = chat_to_anthropic(req, model.upstream_id, model.max_output_tokens or 8192)
+            for p in model.drop_params:
+                body.pop(p, None)
+            return body
         return self._openai_body(req, model, provider)
 
     # ── calls ───────────────────────────────────────────────────────────────
