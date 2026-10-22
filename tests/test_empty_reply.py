@@ -63,7 +63,10 @@ async def test_empty_length_reply_reroutes(first_model) -> None:
     assert r.headers["x-flux-attempts"].split(",")[0].endswith(":empty_reply")
 
 
-async def test_all_empty_gives_clear_error(keys) -> None:
+async def test_all_empty_gives_clear_error(keys, monkeypatch: pytest.MonkeyPatch) -> None:
+    # the fake upstream answers in OpenAI shape, so keep Anthropic (a different wire format) out of the pool
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+
     def handler(request: httpx.Request) -> httpx.Response:
         return _resp(json.loads(request.content)["model"], "", "length")
 

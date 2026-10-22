@@ -28,7 +28,9 @@ def _turn2(first_msg: dict, call_id: str) -> dict:
     }
 
 
-async def test_failed_holder_reroutes_with_history_intact(http, fake) -> None:
+async def test_failed_holder_reroutes_with_history_intact(http, fake, monkeypatch) -> None:
+    # compare OpenAI-shaped request bodies before and after the reroute: keep Anthropic out of the pool
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
     fake.tool_call = True
     first = await http.post(
         "/v1/chat/completions",
